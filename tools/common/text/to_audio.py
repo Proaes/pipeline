@@ -789,6 +789,21 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def draw_paths(base: Path, n: int) -> list[Path]:
+    """抽卡落点：`<名>_d01.<ext>`、`_d02`… 取接下来 n 个不存在的编号（不覆盖、不跳过）。
+
+    同一段文本多抽几发才能挑最好的那发 —— 这链路的解码是随机的，每发都不一样。
+    """
+    out: list[Path] = []
+    i = 1
+    while len(out) < n:
+        cand = base.with_name(f"{base.stem}_d{i:02d}{base.suffix}")
+        if not cand.exists():
+            out.append(cand)
+        i += 1
+    return out
+
+
 def collect_texts(input_dir: Path, recursive: bool) -> list[Path]:
     """收集文本文件。"""
     files: list[Path] = []
@@ -819,6 +834,11 @@ def main() -> None:
     parser.add_argument("-o", "--output", default=None, help="输出音频路径（单文件模式）")
     parser.add_argument("--outdir", default=None, help="输出目录（批量模式）")
     parser.add_argument("-f", "--force", action="store_true", help="强制覆盖已有文件")
+    parser.add_argument("--draw", action="store_true",
+                        help="抽卡模式：每跑一次出一份新文件（<名>_d01.<ext>、_d02…），既不覆盖也不跳过；"
+                             "同一段文本多抽几发挑最好（这链路的解码是随机的）")
+    parser.add_argument("--count", type=int, default=1, metavar="N",
+                        help="一次生成 N 个版本（N>1 时自动走抽卡命名 <名>_d01…，便于并排挑最好的）[默认: 1]")
     parser.add_argument("--check", action="store_true", help="仅检查环境")
     parser.add_argument("--list-voices", action="store_true", help="列出可用音色")
     parser.add_argument("--register", metavar="音色名",
@@ -950,14 +970,25 @@ def main() -> None:
 
     # ── 单文件 ──
     if input_path.is_file():
-        out_path = common.resolve_output(input_path, opts.output, opts.outdir, opts.format)
+        base_out = common.resolve_output(input_path, opts.output, opts.outdir, opts.format)
+        n_ver = max(1, opts.count)
+        draw = (opts.draw or n_ver > 1) and not opts.dry_run
+        outs = draw_paths(base_out, n_ver) if draw else [base_out]
         print(f"输入: {input_path}")
-        print(f"输出: {out_path}")
-        print(f"引擎: {opts.engine}\n")
-        if out_path.exists() and not opts.force and not opts.dry_run:
-            print(f"[跳过] {out_path.name} 已存在（加 -f 覆盖）")
+        print(f"输出: {outs[0]}" if len(outs) == 1
+              else f"输出: {len(outs)} 个版本（{outs[0].name} … {outs[-1].name}）")
+        print(f"引擎: {opts.engine}" + ("（抽卡模式）" if draw else "") + "\n")
+        if not draw and outs[0].exists() and not opts.force and not opts.dry_run:
+            print(f"[跳过] {outs[0].name} 已存在，本次什么都没生成"
+                  f"（加 -f 覆盖，或加 --draw／--count 每跑一次出新文件）")
             sys.exit(0)
-        sys.exit(0 if process_one(input_path, out_path, opts, voice) else 1)
+        all_ok = True
+        for i, out_p in enumerate(outs, 1):
+            if len(outs) > 1:
+                print(f"── 版本 {i}/{len(outs)}：{out_p.name}")
+            if not process_one(input_path, out_p, opts, voice):
+                all_ok = False
+        sys.exit(0 if all_ok else 1)
 
     # ── 批量 ──
     files = collect_texts(input_path, opts.recursive)
@@ -982,14 +1013,18 @@ def main() -> None:
             rel = src.relative_to(input_path)
         except ValueError:
             rel = Path(src.name)
-        out_path = (outdir / rel).with_suffix(f".{opts.format}")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[{i}/{len(files)}] {rel}")
-        if out_path.exists() and not opts.force and not opts.dry_run:
-            print(f"  [跳过] {out_path.name} 已存在")
+        base_out = (outdir / rel).with_suffix(f".{opts.format}")
+        n_ver = max(1, opts.count)
+        draw = (opts.draw or n_ver > 1) and not opts.dry_run
+        outs = draw_paths(base_out, n_ver) if draw else [base_out]
+        base_out.parent.mkdir(parents=True, exist_ok=True)
+        print(f"[{i}/{len(files)}] {rel}" + (f"（每篇 {n_ver} 个版本）" if n_ver > 1 else ""))
+        if not draw and outs[0].exists() and not opts.force and not opts.dry_run:
+            print(f"  [跳过] {outs[0].name} 已存在，本次没重新生成"
+                  f"（加 -f 覆盖，或加 --draw／--count 每跑一次出新文件）")
             skipped += 1
             continue
-        if process_one(src, out_path, opts, voice):
+        if all(process_one(src, out_p, opts, voice) for out_p in outs):
             success += 1
         else:
             failed += 1

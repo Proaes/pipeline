@@ -159,12 +159,16 @@
       </select>
       　收尾静音：<input id="tts_tail_pad" type="number" step="0.05" min="0" value="0.55" style="width:72px"> 秒
       <label><input type="checkbox" id="tts_srt"> 同时输出 .srt 时间轴</label>
+      <label title="每次转换都写一份新文件（<名>_d01、_d02…），不覆盖也不跳过；同一段文本多抽几发挑最好"><input type="checkbox" id="tts_draw"> 抽卡模式</label>
+      <button id="ttsserve">▶ 启动 GPT-SoVITS 服务</button>
+      <button id="ttsstop">■ 停止服务</button>
       <span id="ttsstatus" class="dim">（检查 TTS 环境…）</span>
     </div>
     <div class="opt-row">
       <label><input type="checkbox" id="openpdf"> 转换后打开 PDF</label>
       <label><input type="checkbox" id="force"> 覆盖已存在产物</label>
       <span class="dim" id="targethint"></span>
+      <label id="ttscountwrap" style="display:none" title="一次生成几个版本（>1 时自动命名 <名>_d01、_d02…，方便并排挑最好的那一发）">版本数：<input id="tts_count" type="number" min="1" max="9" value="1" style="width:52px"></label>
       <button id="convert" class="primary" style="margin-left:16px">开始转换</button>
       <span id="convstate" class="dim"></span>
     </div>
@@ -652,6 +656,7 @@ document.querySelectorAll("input[name=target]").forEach(r => {
     const aud = (currentTarget() === "audio");
     $("ocropts").style.display = img ? "" : "none";
     $("ttsopts").style.display = aud ? "" : "none";
+    $("ttscountwrap").style.display = aud ? "" : "none";  // 版本数只在 TTS 目标下出现
     $("pickdir").style.display = img ? "" : "none";
     if (img) ocrCheck();
     if (aud) ttsCheck();
@@ -662,19 +667,21 @@ document.querySelectorAll("input[name=target]").forEach(r => {
 
 /* ── TTS 环境与音色 ── */
 let ttsLoaded = false;
+let ttsServePoll = null;
 async function ttsCheck() {
   const st = $("ttsstatus");
   try {
     const d = await api("/api/tts/voices");
-    if (!d.ok) { st.textContent = "⚠ " + (d.message || "TTS 环境未就绪"); return; }
+    if (!d.ok) { st.textContent = "⚠ " + (d.message || "TTS 环境未就绪"); $("ttsserve").disabled = false; return d; }
     const svc = d.service || {};
     if (svc.alive) {
       st.textContent = `● 就绪 · GPT-SoVITS 服务在跑（${svc.host}:${svc.port}）`;
       st.style.color = "#16a34a";
     } else {
-      st.textContent = "● 就绪 · GPT-SoVITS 服务未启动（用 GENIE 引擎，或先跑 output/tts/p10_serve_si.ps1）";
+      st.textContent = "● 就绪 · GPT-SoVITS 服务未启动（点「▶ 启动 GPT-SoVITS 服务」，或把引擎切到 GENIE）";
       st.style.color = "#e08b00";
     }
+    $("ttsserve").disabled = !!svc.alive;
     if (!ttsLoaded) {
       const selv = $("tts_voice");
       const add = (label, names) => (names || []).forEach(n => {
@@ -687,10 +694,48 @@ async function ttsCheck() {
       add("我的音色", d.registry);
       ttsLoaded = true;
     }
+    return d;
   } catch (e) {
     st.textContent = "⚠ 查询失败：" + e;
+    return null;
   }
 }
+
+/* ── GPT-SoVITS 服务：在界面里直接起停 ── */
+$("ttsserve").onclick = async () => {
+  const st = $("ttsstatus");
+  st.textContent = "启动中…（模型加载要几十秒，先别关这个页面）";
+  st.style.color = "#e08b00";
+  try {
+    const d = await api("/api/tts/serve/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    st.textContent = (d.started ? "⏳ " : "ℹ ") + (d.message || "");
+    if (!d.started) { st.style.color = d.alive ? "#16a34a" : "#dc2626"; return; }
+    logLine($("log"), "[TTS] " + d.message, "dim");
+    clearInterval(ttsServePoll);
+    let n = 0;
+    ttsServePoll = setInterval(async () => {
+      n += 1;
+      const r = await ttsCheck();
+      if ((r && r.service && r.service.alive) || n > 40) {
+        clearInterval(ttsServePoll); ttsServePoll = null;
+      }
+    }, 3000);
+  } catch (e) { st.textContent = "启动失败：" + e; st.style.color = "#dc2626"; }
+};
+$("ttsstop").onclick = async () => {
+  const st = $("ttsstatus");
+  try {
+    const d = await api("/api/tts/serve/stop", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    st.textContent = d.message || "";
+    st.style.color = d.stopped ? "#666" : "#e08b00";
+  } catch (e) { st.textContent = "停止失败：" + e; st.style.color = "#dc2626"; }
+  clearInterval(ttsServePoll); ttsServePoll = null;
+  ttsCheck();
+};
 
 async function ocrCheck() {
   const st = $("ocrstatus");
@@ -736,6 +781,8 @@ $("convert").onclick = async () => {
         audio_format: $("tts_format").value,
         voice: $("tts_voice").value,
         tts_engine: $("tts_engine").value,
+        tts_draw: $("tts_draw").checked,
+        tts_count: $("tts_count").value,
         audio_tail_pad: $("tts_tail_pad").value,
         audio_srt: $("tts_srt").checked,
         recursive: $("ocr_recursive").checked,
@@ -745,7 +792,9 @@ $("convert").onclick = async () => {
     for (const res of (d.results || [])) {
       logLine(log, res.ok ? "✓ " + res.file : "✗ " + res.file, res.ok ? "ok" : "err");
       for (const s of res.steps) {
-        logLine(log, `   [${s.step}] ${s.ok ? "成功" : "失败"}`, s.ok ? "ok" : "err");
+        const skipped = (s.out || "").includes("[跳过]");
+        logLine(log, `   [${s.step}] ${s.ok ? (skipped ? "跳过（产物已存在，本次没重新生成）" : "成功") : "失败"}`,
+                s.ok ? (skipped ? "dim" : "ok") : "err");
         if (s.out) logLine(log, s.out.trimEnd(), "dim");
         if (s.err) logLine(log, s.err.trimEnd(), "err");
       }

@@ -101,6 +101,98 @@ PPTX_TO_JSON = TOOLS / "common" / "pptx" / "to_json.py"
 JSON_TO_MD = TOOLS / "common" / "json" / "to_md.py"
 JSON_TO_DOCX = TOOLS / "common" / "json" / "to_docx.py"
 
+# 界面里「启动服务」按钮跑的就是它；换别的服务脚本用 PIPELINE_TTS_SERVE_SCRIPT 指定
+TTS_SERVE_SCRIPT = Path(os.environ.get("PIPELINE_TTS_SERVE_SCRIPT",
+                                       str(ROOT / "output" / "tts" / "p10_serve_si.ps1")))
+_tts_serve_proc: subprocess.Popen | None = None
+
+
+def tts_serve_start() -> dict:
+    """在界面这一侧拉起 GPT-SoVITS 服务（模型加载要几十秒，看状态栏刷新）。"""
+    global _tts_serve_proc
+
+    if tts_service_alive():
+        return {"started": False, "alive": True,
+                "message": f"服务已经在跑（{TTS_HOST}:{TTS_PORT}），不用重复启动"}
+    if not TTS_SERVE_SCRIPT.is_file():
+        return {"started": False, "alive": False,
+                "message": (f"找不到启动脚本: {TTS_SERVE_SCRIPT}"
+                            f"（可用环境变量 PIPELINE_TTS_SERVE_SCRIPT 指定）")}
+
+    log_path = TTS_SERVE_SCRIPT.parent / "p10_serve_si.log"
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+           "-File", str(TTS_SERVE_SCRIPT), "-Port", str(TTS_PORT)]
+    # 注意：这里不能用 DETACHED_PROCESS —— 实测该标志下子进程会立刻死掉（连日志都不写）；
+    # CREATE_NO_WINDOW 够用：窗口不弹、进程照常活着。
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    try:
+        with open(log_path, "ab") as fh:
+            _tts_serve_proc = subprocess.Popen(
+                cmd, cwd=str(ROOT), stdin=subprocess.DEVNULL,
+                stdout=fh, stderr=subprocess.STDOUT, creationflags=flags)
+    except OSError as exc:
+        return {"started": False, "alive": False, "message": f"启动失败: {exc}"}
+    return {"started": True, "alive": False, "pid": _tts_serve_proc.pid, "log": str(log_path),
+            "message": (f"已启动（PID {_tts_serve_proc.pid}），模型加载要几十秒；"
+                        f"日志: {log_path}")}
+
+
+def tts_serve_stop() -> dict:
+    """停掉「本界面启动的」服务；别的窗口起的服务不越权去杀。"""
+    global _tts_serve_proc
+
+    if _tts_serve_proc is None or _tts_serve_proc.poll() is not None:
+        _tts_serve_proc = None
+        if tts_service_alive():
+            return {"stopped": False,
+                    "message": "这个服务不是本界面启动的；请到它自己的窗口按 Ctrl+C"}
+        return {"stopped": False, "message": "服务没在跑"}
+    pid = _tts_serve_proc.pid
+    _kill_tree(pid)
+    # powershell 被杀掉后，它起的 python(uvicorn) 可能变成孤儿继续占着端口 —— 按端口补一刀
+    time.sleep(1.0)
+    orphans = [p for p in _pids_on_port(TTS_PORT) if p != pid]
+    for op in orphans:
+        _kill_tree(op)
+    time.sleep(0.5)
+    if tts_service_alive():
+        # 说实话：kill 可能因权限不足而失败，别报「已停止」骗人
+        return {"stopped": False,
+                "message": (f"发了停止命令，但 {TTS_HOST}:{TTS_PORT} 仍被占用"
+                            f"（PID {pid}{'、' + '、'.join(map(str, orphans)) if orphans else ''}）——"
+                            f"多为权限不足；请用任务管理器结束该 PID，或到它的窗口按 Ctrl+C")}
+    _tts_serve_proc = None
+    msg = f"已停止本界面启动的服务（PID {pid} 及其子进程）"
+    if orphans:
+        msg += f"；另清理了占着 {TTS_PORT} 端口的孤儿进程 {orphans}"
+    return {"stopped": True, "message": msg}
+
+
+def _kill_tree(pid: int) -> bool:
+    """taskkill /T /F；返回是否成功（权限不足时会 False）。"""
+    try:
+        r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def _pids_on_port(port: int) -> list[int]:
+    """谁在听这个端口。用 netstat —— Get-NetTCPConnection 在受限环境里可能被拒。"""
+    try:
+        out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids: list[int] = []
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING":
+            if parts[1].endswith(f":{port}") and parts[4].isdigit():
+                pids.append(int(parts[4]))
+    return sorted(set(pids))
+
 # 文件浏览根目录：仅限 jobs/（任务归档）
 JOBS_ROOT = ROOT / "jobs"
 
@@ -231,6 +323,14 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
                 cmd += [flag, str(val)]
         if opts.get("audio_srt"):
             cmd.append("--srt")
+        if opts.get("tts_draw"):
+            cmd.append("--draw")  # 抽卡模式：每跑一次出一份新文件，不覆盖也不跳过
+        try:
+            n_ver = int(opts.get("tts_count") or 1)  # 一次出几个版本（>1 自动抽卡命名）
+        except (TypeError, ValueError):
+            n_ver = 1
+        if n_ver > 1:
+            cmd += ["--count", str(n_ver)]
         return [step]
 
     if target == "pdf":
@@ -666,6 +766,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(ocr_start())
         elif path == "/api/ocr/pull":
             self._send_json(ocr_pull())
+        elif path == "/api/tts/serve/start":
+            self._send_json(tts_serve_start())
+        elif path == "/api/tts/serve/stop":
+            self._send_json(tts_serve_stop())
         else:
             self._send_json({"error": "not found"}, 404)
 
