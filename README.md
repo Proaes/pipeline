@@ -1,0 +1,593 @@
+# 📄 Pipeline — 多格式文档转换工具集
+
+> 一套轻量级、模块化的 Python 工具集，用于将 PPTX 演示文稿、SQL 建表语句等文件批量转换为 JSON、Markdown、LaTeX、Word、draw.io 等多种格式。
+
+---
+
+## ✨ 功能概览
+
+| 输入格式 | 输出格式 | 工具脚本 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `.pptx` | `.json` | `extract.py` | 提取幻灯片结构化内容（文本、表格、格式） |
+| `.pptx` | `.md` | `extract.py` → `render_md.py` | PPT → Markdown 文档 |
+| `.pptx` | `.tex` | `extract.py` → `render_tex.py` | PPT → LaTeX 文档（article / beamer 模式） |
+| `.pptx` | `.docx` | `extract.py` → `render_docx.py` | PPT → Word 文档（含封面、表格、格式） |
+| `.sql` | `.drawio` | `sql2drawio.py` | SQL CREATE TABLE → draw.io ER 图 |
+| `.pptx` | 专有报告 `.docx` | `build_report.py` / `gen_report.py` → `render_specialized_tool.py` | 专用专有报告生成（某医院模板） |
+| 图片 (`.png` 等) | `.md` | `batch_ocr.py` | 批量 OCR：调用 Ollama 视觉模型识别图片 → Markdown |
+| 视频 (`.mp4` 等) | `.md` | `video_to_text.py` | 视频语音转文本：提取音频 + ASR 识别 → Markdown |
+| 音频 (`.wav` 等) | `.md` | `audio_to_text.py` | 音频转文本：直接对音频文件进行 ASR 识别 → Markdown |
+| B站/YouTube 链接 | `.mp4` / `.mp3` | `download_video.py` | 视频下载：支持 B站、YouTube 等，可选自动转文字 |
+
+---
+
+## 指令
+
+python download_video.py "https://www.bilibili.com/video/BV1PpbZ6yEdZ/?spm_id_from=333.788.top_right_bar_window_history.content.click&vd_source=31718b165e8ad5f16162c06a62707fe6" --cookies cookies.txt
+
+---
+
+## 📁 目录结构
+
+```
+pipeline/
+├── main.py                 # 批量转换入口（读取 config.json）
+├── pipeline.py             # 单文件串联转换入口
+├── batch_ocr.py            # 批量 OCR（图片 → Markdown，调用 Ollama 视觉模型）
+├── video_to_text.py        # 视频语音转文本（提取音频 + ASR 识别）
+├── audio_to_text.py        # 音频转文本（直接对音频文件 ASR 识别）
+├── download_video.py       # 视频下载（B站/YouTube，可选自动转文字）
+├── config.json             # 批量任务配置文件
+│
+├── extract.py              # PPTX → JSON 提取器
+├── render_md.py            # JSON → Markdown 渲染器
+├── render_tex.py           # JSON → LaTeX 渲染器
+├── render_docx.py          # JSON → Word 渲染器（通用）
+├── render_specialized_tool.py       # JSON → Word 渲染器（专有报告专用模板）
+├── sql2drawio.py           # SQL → draw.io ER 图生成器
+├── build_report.py         # 构建专有报告 JSON（从 PPT 提取内容）
+├── gen_report.py           # 直接生成专有报告 JSON（硬编码内容）
+│
+├── input/                  # 输入文件目录
+│   └── *.pdf               # 示例 PDF 文件
+│
+├── output/                 # 输出文件目录
+│   ├── *.json              # 提取的结构化 JSON
+│   ├── *.md                # 渲染的 Markdown 文档
+│   ├── *.tex               # 渲染的 LaTeX 文档
+│   ├── *.docx              # 渲染的 Word 文档
+│   └── *.drawio            # 生成的 ER 图
+│
+└── README.md               # 本文件
+```
+
+---
+
+## 🚀 快速开始
+
+### 1. 环境要求
+
+- **Python 3.10+**
+- 依赖库：
+
+```bash
+pip install python-pptx python-docx
+```
+
+- **Ollama**（批量 OCR 需要）：
+
+```bash
+# 安装 Ollama: https://ollama.com/download
+ollama serve                    # 启动 Ollama 服务
+ollama pull qwen2.5vl:7b       # 拉取视觉模型
+```
+
+- **FunASR**（视频语音转文本需要）：
+
+```bash
+pip install funasr torch torchaudio
+# 如果使用 Whisper:
+pip install openai-whisper
+```
+
+- **yt-dlp**（视频下载需要）：
+
+```bash
+pip install yt-dlp
+```
+
+### 2. 单文件转换
+
+#### PPTX → JSON + Markdown
+
+```bash
+# 提取 JSON
+python extract.py input.pptx -o output/slides.json
+
+# 渲染 Markdown
+python render_md.py output/slides.json -o output/slides.md
+```
+
+#### 一键串联（推荐）
+
+```bash
+# PPTX → JSON + Markdown（默认）
+python pipeline.py input.pptx
+
+# PPTX → JSON + Markdown + LaTeX + Word
+python pipeline.py input.pptx --to json md tex docx
+
+# 指定输出目录
+python pipeline.py input.pptx --to all --outdir ./output
+
+# LaTeX beamer 模式（生成幻灯片格式）
+python pipeline.py input.pptx --to tex --tex-mode beamer
+```
+
+#### SQL → draw.io ER 图
+
+```bash
+python sql2drawio.py schema.sql -o output/ER图.drawio --lang zh
+```
+
+### 3. 批量转换（config.json）
+
+编辑 `config.json` 配置任务：
+
+```json
+{
+  "defaults": {
+    "outdir": "output",
+    "lang": "zh"
+  },
+  "tasks": [
+    {
+      "input": "slides.pptx",
+      "to": ["json", "md", "tex"]
+    },
+    {
+      "input": "schema.sql",
+      "to": ["drawio"]
+    },
+    {
+      "input": "another.pptx",
+      "to": ["json", "docx"],
+      "outdir": "custom_output/"
+    }
+  ]
+}
+```
+
+运行批量任务：
+
+```bash
+python main.py                  # 使用默认 config.json
+python main.py -c my_config.json  # 使用自定义配置
+python main.py --list             # 仅列出任务，不执行
+```
+
+---
+
+## 📖 各脚本详细说明
+
+### `extract.py` — PPTX 内容提取器
+
+从 PowerPoint 文件中提取所有幻灯片的结构化内容。
+
+**提取内容：**
+- 文本框（保留加粗、斜体、字号、颜色等格式）
+- 表格（自动识别表头）
+- 组合形状（递归提取）
+- 备注页内容
+
+**输出 JSON 结构：**
+```json
+{
+  "meta": {
+    "source": "演示文稿.pptx",
+    "slide_count": 10,
+    "extracted_at": "2025-01-15T12:00:00"
+  },
+  "slides": [
+    {
+      "index": 1,
+      "shapes": [
+        {
+          "type": "text",
+          "content": "标题文字",
+          "spans": [
+            {"text": "标题", "bold": true, "size": 24.0}
+          ]
+        },
+        {
+          "type": "table",
+          "headers": ["列1", "列2"],
+          "rows": [["数据1", "数据2"]]
+        }
+      ],
+      "notes": "备注内容"
+    }
+  ]
+}
+```
+
+**用法：**
+```bash
+python extract.py input.pptx [-o output.json] [--indent 2]
+```
+
+---
+
+### `render_md.py` — Markdown 渲染器
+
+将提取的 JSON 渲染为格式化的 Markdown 文档。
+
+**特性：**
+- 按幻灯片分章节（`## 幻灯片 N`）
+- 保留加粗、斜体等内联格式
+- 表格自动转换为 Markdown 表格语法
+- 按位置排序（从上到下，从左到右）
+
+**用法：**
+```bash
+python render_md.py input.json [-o output.md]
+```
+
+---
+
+### `render_tex.py` — LaTeX 渲染器
+
+将 JSON 渲染为可编译的 LaTeX 文档。
+
+**支持模式：**
+- `article`（默认）：论文/报告格式，使用 `ctexart` 文档类
+- `beamer`：幻灯片格式，使用 `ctexbeamer` + Madrid 主题
+
+**特性：**
+- 自动处理 LaTeX 特殊字符转义
+- 表格渲染为 `tabular` 环境
+- 列表自动识别 `itemize` / `enumerate`
+- 支持中文（需安装 ctex 宏包）
+
+**用法：**
+```bash
+python render_tex.py input.json [-o output.tex] [--mode article|beamer]
+```
+
+**编译：**
+```bash
+xelatex output.tex    # 需安装 TeX Live + ctex 宏包
+```
+
+---
+
+### `render_docx.py` — Word 渲染器（通用）
+
+将 JSON 渲染为 Word 文档。
+
+**特性：**
+- 自动生成封面（标题 + 元信息）
+- 宋体 + 小四（12pt）正文，1.5 倍行距
+- 表格使用 "Table Grid" 样式
+- 保留加粗、斜体等格式
+
+**用法：**
+```bash
+python render_docx.py input.json [-o output.docx]
+```
+
+---
+
+### `render_specialized_tool.py` — 专有报告专用渲染器
+
+将专有报告 JSON 渲染为符合**某医院专有部模板规范**的 Word 文档。
+
+**模板规范：**
+- 标题：宋体三号（16pt）加粗居中
+- 正文：宋体小四（12pt）1.5 倍行距，首行缩进 2 字符，两端对齐
+- 一级标题：宋体小四加粗
+- 表格：宋体五号（10.5pt）
+- 参考文献：宋体五号（10.5pt）
+
+**自动生成内容：**
+- 某医院标准封面（含签名栏）
+- 自动识别章节类型（主标题、一级标题、正文、参考文献）
+
+**用法：**
+```bash
+python render_specialized_tool.py report.json [-o output.docx]
+```
+
+---
+
+### `sql2drawio.py` — SQL → ER 图生成器
+
+将 SQL `CREATE TABLE` 语句转换为 [draw.io](https://app.diagrams.net) 可直接打开的 ER 图。
+
+**支持的 SQL 特性：**
+- `CREATE TABLE` 语句
+- `PRIMARY KEY`、`UNIQUE KEY`、`FOREIGN KEY` 约束
+- `COMMENT` 字段（表注释、列注释）
+- 内联 `UNIQUE` 约束
+
+**输出格式：**
+- Chen 记法 ER 图（矩形实体、椭圆属性、菱形关系）
+- 自动布局（网格排列，每行 3 个实体）
+- 中英文标签支持
+
+**用法：**
+```bash
+python sql2drawio.py schema.sql [-o ER图.drawio] [--lang zh|en]
+```
+
+**在 draw.io 中打开：**
+1. 打开 [https://app.diagrams.net](https://app.diagrams.net)
+2. 文件 → 打开 → 选择生成的 `.drawio` 文件
+
+---
+
+### `batch_ocr.py` — 批量 OCR 工具
+
+调用 Ollama 视觉模型（如 `qwen2.5vl:7b`），自动扫描文件夹中的图片并生成对应的 Markdown 文件。
+
+**特性：**
+- 支持 `.jpg`, `.png`, `.bmp`, `.webp`, `.tiff`, `.gif` 等格式
+- 自动跳过已存在的输出文件（断点续传）
+- 支持递归扫描子文件夹
+- 自定义提示词（OCR、表格提取、公式识别等）
+- 输出带元信息头（来源、模型、时间、耗时）
+
+**用法：**
+```bash
+# 使用默认配置（扫描 input/ 目录，输出到 output/ 目录）
+python batch_ocr.py
+
+# 指定输入输出目录
+python batch_ocr.py -i ./images -o ./output
+
+# 递归扫描子文件夹
+python batch_ocr.py -i ./docs -o ./markdown --recursive
+
+# 自定义提示词（提取表格数据）
+python batch_ocr.py --prompt "请提取图片中的表格数据，使用Markdown表格格式输出"
+
+# 自定义提示词（识别数学公式）
+python batch_ocr.py --prompt "请识别图片中的数学公式，使用LaTeX格式输出"
+
+# 使用其他模型
+python batch_ocr.py --model minicpm-v
+
+# 强制覆盖已有文件
+python batch_ocr.py --force
+
+# 仅检查环境
+python batch_ocr.py --check
+```
+
+**参数说明：**
+
+| 参数 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `-i, --input` | 输入图片目录 | `input` |
+| `-o, --output` | 输出 Markdown 目录 | `output` |
+| `-m, --model` | Ollama 模型名称 | `qwen2.5vl:7b` |
+| `-p, --prompt` | OCR 提示词 | 完整文档转 Markdown |
+| `-r, --recursive` | 递归扫描子文件夹 | 否 |
+| `-f, --force` | 强制覆盖已有文件 | 否 |
+| `--check` | 仅检查环境 | 否 |
+
+---
+
+### `build_report.py` / `gen_report.py` — 专有报告生成器
+
+这两个脚本用于生成专有报告的结构化 JSON，供 `render_specialized_tool.py` 渲染。
+
+- **`build_report.py`**：从 PPT 提取的 JSON 中构建报告（需要先运行 `extract.py`）
+- **`gen_report.py`**：直接硬编码生成报告内容（无需 PPT 源文件）
+
+**用法：**
+```bash
+# 方式一：从 PPT 提取
+python extract.py slides.pptx -o slides.json
+python build_report.py slides.json -o report.json
+python render_specialized_tool.py report.json -o 专有报告.docx
+
+# 方式二：直接生成
+python gen_report.py
+python render_specialized_tool.py output/病例_专有报告.json -o 专有报告.docx
+```
+
+---
+
+## 🔧 配置说明
+
+### config.json 完整字段
+
+```json
+{
+  "defaults": {
+    "outdir": "output",        // 默认输出目录
+    "lang": "zh",              // 语言（zh/en），影响 SQL2drawio 的标签
+    "tex_mode": "article",     // LaTeX 模式（article/beamer）
+    "indent": 2,               // JSON 缩进
+    "to": ["json", "md"]       // 默认输出格式
+  },
+  "tasks": [
+    {
+      "input": "path/to/file.pptx",   // 输入文件路径（相对于脚本目录或绝对路径）
+      "to": ["json", "md", "tex"],     // 输出格式（覆盖默认值）
+      "outdir": "custom/",             // 输出目录（覆盖默认值）
+      "lang": "en",                    // 语言（覆盖默认值）
+      "tex_mode": "beamer",            // LaTeX 模式（覆盖默认值）
+      "indent": 4                      // JSON 缩进（覆盖默认值）
+    }
+  ]
+}
+```
+
+### 支持的格式映射
+
+| 输入后缀 | 输入类型 | 可用输出格式 |
+| :--- | :--- | :--- |
+| `.pptx` | pptx | json, md, tex, docx |
+| `.sql` | sql | drawio |
+
+---
+
+## 📝 使用示例
+
+### 示例 1：PPT 转 Markdown 笔记
+
+```bash
+python pipeline.py "我的演示文稿.pptx" --to json md --outdir ./notes
+```
+
+### 示例 2：PPT 转 LaTeX 论文
+
+```bash
+python pipeline.py "学术报告.pptx" --to tex --tex-mode article --outdir ./paper
+```
+
+### 示例 3：PPT 转 Beamer 幻灯片
+
+```bash
+python pipeline.py "会议演示.pptx" --to tex --tex-mode beamer
+```
+
+### 示例 4：数据库设计转 ER 图
+
+```bash
+python sql2drawio.py database.sql -o "数据库设计ER图.drawio" --lang zh
+```
+
+### 示例 5：批量转换多个文件
+
+```json
+// config.json
+{
+  "defaults": { "outdir": "output", "lang": "zh" },
+  "tasks": [
+    { "input": "课件1.pptx", "to": ["json", "md"] },
+    { "input": "课件2.pptx", "to": ["json", "tex"] },
+    { "input": "数据库.sql", "to": ["drawio"] }
+  ]
+}
+```
+
+```bash
+python main.py
+```
+
+### 示例 6：批量 OCR 图片
+
+```bash
+# 扫描 images/ 文件夹，生成 Markdown 到 output/ 文件夹
+python batch_ocr.py -i ./images -o ./output
+
+# 递归扫描，自定义提示词提取表格
+python batch_ocr.py -i ./screenshots -o ./docs --recursive --prompt "提取表格数据为Markdown格式"
+```
+
+### 示例 7：视频语音转文本
+
+```bash
+# 单个视频转文本（默认使用 SenseVoice）
+python video_to_text.py lecture.mp4
+
+# 使用 Qwen3-ASR（中文最强）
+python video_to_text.py lecture.mp4 --model qwen3asr
+
+# 批量处理文件夹中的所有视频
+python video_to_text.py ./videos/ --outdir ./transcripts --recursive
+
+# 使用 Whisper
+python video_to_text.py meeting.mp4 --model whisper
+```
+
+### 示例 8：音频转文本
+
+```bash
+# 单个音频文件（默认 Qwen3-ASR）
+python audio_to_text.py recording.wav
+
+# 批量处理音频文件夹
+python audio_to_text.py ./recordings/ --outdir ./transcripts --recursive
+
+# 使用 SenseVoice
+python audio_to_text.py podcast.mp3 --model sensevoice
+```
+
+### 示例 9：下载 B站视频
+
+```bash
+# 下载 B站视频（必须使用完整 URL）
+python download_video.py "https://www.bilibili.com/video/BVxxxxxxxxxx"
+
+# 带 Cookie 下载（推荐，更稳定）
+python download_video.py "https://www.bilibili.com/video/BVxxxxxxxxxx" --cookies cookies.txt
+
+# 下载后自动转文字
+python download_video.py "https://www.bilibili.com/video/BVxxxxxxxxxx" --transcribe
+
+# 仅下载音频
+python download_video.py "https://www.bilibili.com/video/BVxxxxxxxxxx" --audio-only
+
+# 下载音频 + 自动转文字
+python download_video.py "https://www.bilibili.com/video/BVxxxxxxxxxx" --audio-only --transcribe
+
+# 指定画质
+python download_video.py "https://www.bilibili.com/video/BVxxxxxxxxxx" --quality 720p
+
+# 或者双击交互式下载（自动带 Cookie）
+run_download.bat
+```
+
+---
+
+## ⚠️ 注意事项
+
+1. **中文支持**：
+   - LaTeX 输出需要安装 [TeX Live](https://www.tug.org/texlive/) + `ctex` 宏包
+   - Word 输出使用"宋体"，确保系统已安装该字体
+
+2. **SQL 解析限制**：
+   - 仅支持标准的 `CREATE TABLE` 语法
+   - 不支持 `CREATE VIEW`、`CREATE INDEX` 等其他 DDL
+   - MySQL 语法兼容性最佳
+
+3. **文件路径**：
+   - 支持相对路径（相对于脚本所在目录）和绝对路径
+   - Windows 路径使用反斜杠 `\` 或正斜杠 `/` 均可
+
+4. **编码**：
+   - 所有文件均使用 UTF-8 编码
+   - JSON 输出支持中文（`ensure_ascii=False`）
+
+5. **批量 OCR**：
+   - 需要先启动 Ollama 服务：`ollama serve`
+   - 每张图片处理时间约 1-10 秒，取决于图片复杂度和 GPU 性能
+   - RTX 4060 8GB 显存跑 `qwen2.5vl:7b` 约 6GB 显存占用，留有余量
+
+6. **视频语音转文本**：
+   - 需要安装 ffmpeg（用于提取音频）
+   - 首次运行会自动下载 ASR 模型（约 1-2GB）
+   - SenseVoice 和 Qwen3-ASR 对中文识别效果最好
+   - 长视频处理时间取决于音频时长，一般 1 分钟音频需要 5-15 秒
+
+---
+
+## 📄 许可证
+
+本项目为个人工具集，仅供学习和内部使用。
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+---
+
+## 📧 联系方式
+
+如有问题，请通过 GitHub Issues 反馈。

@@ -1,0 +1,16 @@
+{
+  "defaults": {
+    "outdir": "output",
+    "lang": "zh"
+  },
+  "tasks": [
+    {
+      "input": "output/3月疾病示例.pptx",
+      "to": ["json", "md", "tex"]
+    },
+    {
+      "input": "schema.sql",
+      "to": ["drawio"]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+- YYMMDDHHMMSS_任务名（前面是时间戳，后面是任务名，中间使用下划线连接）
+    - 0_m3u8（0表示是原文件，中间是存放的文件类型）
+    - 0_ts（0表示是原文件）
+    - 1_mp4（1表示是一转文件）
+    - 2_md（2表示是二转文件）
+    - 3_pdf（3表示是三转文件）
+    - README.md
+- YYMMDDHHMMSS_任务名2
+    - 0_pptx
+        - XXXX_YYMMDDHHMMSS.pptx
+    - 1_json
+    - 2_md
+    - 2_tex
+    - 2_docx
+    - 3_pdf
+
+- 工具文件夹
+    - 通用工具
+        - 输入文件（文件夹）
+            - to_XXX.py
+    - 特化工具
+        - 任务名
+            - 输入文件（文件夹）
+                - to_XXX.py
