@@ -9,8 +9,15 @@ download/
 other_files/
 # 软删除区
 recycle_bin/
+# 我的问题记录（本地留档，不入库）
+issue/
+# 专有模块（专有报告等）已移出本仓库，见工作区 pipeline-specialized/
+tools/specialized/
 # 音色库（含声纹素材与逐字文本）—— 本仓库公开，不发布别人的声音
 voices/
+# 语音素材暂存区（PRTS 下载的语音与逐字文本；*.wav 在下面兜底，这里连 .txt 一起挡掉）
+wav/
+wav_cn/
 
 # ============ 敏感文件（绝不提交） ============
 cookies.txt

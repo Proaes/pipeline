@@ -682,6 +682,12 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
                     print(f"        [失败] {str(exc)[:200]}")
                     out = None
         if out is not None and out.is_file():
+            # 兜底：语种标错（例如日语参考文本没给 --prompt-lang jp）时，
+            # 模型会静默产出一段极短的垃圾音频。快于 15 字/秒 就不可能正常。
+            dur = probe_duration(out)
+            if dur < max(0.3, len(chunk) / 15.0):
+                print(f"        [警告] 只合成出 {dur:.2f}s（{len(chunk)} 字），短得离谱 ——"
+                      f" 多半是参考音频的语种或逐字文本不对，检查 --prompt-lang / meta 的 ref_lang")
             wavs.append((chunk, out))
             print(f"        {time.time() - t0:5.2f}s")
         else:
