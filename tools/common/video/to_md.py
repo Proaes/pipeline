@@ -81,7 +81,11 @@ def get_audio_duration(audio_path: Path) -> float:
 
 
 def split_audio(audio_path: Path, chunk_dir: Path, chunk_duration: int = 60) -> list[Path]:
-    """将音频按指定时长（秒）切分成多个片段。"""
+    """将音频按指定时长（秒）切分成多个片段。chunk_duration <= 0 表示禁用切分。"""
+    # 【D1 修复】禁用切分必须在这里就返回：否则下面 `start += chunk_duration` 恒不前进，
+    # while 会死循环并无限 spawn ffmpeg（--chunk 0 在 help 里写的是"禁用"，实测会打爆机器）。
+    if chunk_duration <= 0:
+        return [audio_path]
     chunk_dir.mkdir(parents=True, exist_ok=True)
     duration = get_audio_duration(audio_path)
     if duration <= 0:
@@ -184,7 +188,7 @@ def process_single(video_path: Path, output_path: Path, transcribe_func,
     print(f"  音频时长: {duration:.0f}秒 ({duration/60:.1f}分钟)")
 
     # 切分音频
-    if duration > chunk_duration + 10:
+    if chunk_duration > 0 and duration > chunk_duration + 10:
         print(f"  音频较长，按 {chunk_duration} 秒切分...")
         chunk_dir = Path(tempfile.mkdtemp(prefix="asr_chunks_"))
         chunks = split_audio(audio_path, chunk_dir, chunk_duration)
