@@ -16,8 +16,6 @@
 | PPT → LaTeX | `common/pptx/to_json.py` → `common/json/to_tex.py` | article / beamer 模式 |
 | PPT → Word | `common/pptx/to_json.py` → `common/json/to_docx.py` | 含封面、表格 |
 | PPT 一键全格式 | `pipeline.py input.pptx --to all` | 编排器串联 |
-| 专有报告 → Word | `specialized/specialized_tool/json/to_report.py` → `.../to_docx.py` | 某医院模板 |
-| 硬编码生成专有报告 | `specialized/specialized_tool/generate_report.py` | 无需 PPT 源 |
 | SQL → ER 图 | `common/sql/to_drawio.py` | draw.io 可打开 |
 | 表格 → 折线图 / 柱状图 / 散点图 | `common/csv/to_chart.py` | CSV/TSV → PNG/SVG/PDF；选 x 与多列 y，自动跳过说明行与汇总行；表头重名用 `#N` 列号，`--list-columns` 先看列 |
 | Markdown → JSON | `common/md/to_json.py` | 笔记结构化中间态（`--lint` 检查写法） |
@@ -56,10 +54,6 @@ pipeline/
 │   │   ├── audio/  to_md.py
 │   │   ├── text/   to_audio.py #   文本 → 语音（GENIE / GPT-SoVITS，含音色库）
 │   │   └── url/    to_mp4.py / fix_m3u8.py / export_cookies.py
-│   └── specialized/            # 特化工具：按任务分类
-│       └── specialized_tool/     #   专有报告（某医院模板）
-│           ├── generate_report.py          # 硬编码生成报告 JSON
-│           └── json/  to_report.py / to_docx.py
 ├── gui/                        # 本地 Web 转换面板（纯标准库）
 │   ├── server.py               #   http.server 后端：静态页 + /api/convert /api/browse /api/watch
 │   └── static/index.html       #   单页前端：浏览选文件、批量转换、实时日志、watch 监听
@@ -133,13 +127,8 @@ python tools/common/text/to_audio.py note.md --dry-run        # 只看切句结�
 python gui/server.py              # 默认端口 8765，自动打开浏览器
 python gui/server.py --port 9000 --no-browser
 
-# 专有报告（方式一：从 PPT）
-python tools/common/pptx/to_json.py 示例.pptx -o 示例.json
-python tools/specialized/specialized_tool/json/to_report.py 示例.json -o 报告.json
-python tools/specialized/specialized_tool/json/to_docx.py 报告.json -o 专有报告.docx
-
-# 专有报告（方式二：硬编码生成）
-python tools/specialized/specialized_tool/generate_report.py
+# PPT 一键全格式（含 Word）
+python tools/pipeline.py slides.pptx --to json md tex docx
 ```
 
 ### 双击启动（Windows）
@@ -190,9 +179,6 @@ python tools/main.py --list         # 仅列出任务
 | `fix_m3u8.py` | `tools/common/url/fix_m3u8.py` |
 | `export_cookies.py` | `tools/common/url/export_cookies.py` |
 | `main.py` / `pipeline.py` | `tools/main.py` / `tools/pipeline.py` |
-| `build_report.py` | `tools/specialized/specialized_tool/json/to_report.py` |
-| `gen_report.py` | `tools/specialized/specialized_tool/generate_report.py` |
-| `render_specialized_tool.py` | `tools/specialized/specialized_tool/json/to_docx.py` |
 
 ---
 

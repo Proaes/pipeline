@@ -11,7 +11,7 @@ other_files/
 recycle_bin/
 # 我的问题记录（本地留档，不入库）
 issue/
-# 专有模块（专有报告等）已移出本仓库，见工作区 pipeline-specialized/
+# 专有模块已移出本仓库、单独管理（不在本仓库的任何提交里）
 tools/specialized/
 # 音色库（含声纹素材与逐字文本）—— 本仓库公开，不发布别人的声音
 voices/

@@ -5,7 +5,7 @@
   },
   "tasks": [
     {
-      "input": "output/3月疾病示例.pptx",
+      "input": "slides.pptx",
       "to": ["json", "md", "tex"]
     },
     {

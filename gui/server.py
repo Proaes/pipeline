@@ -487,6 +487,14 @@ def browse(dir_path: str, depth: int = 0) -> dict:
     depth>0: 递归返回子目录的 entries（children 字段）
     depth=-1: 递归到叶子（慎用，目录树很大时会很慢）
     """
+    # jobs/ 是浏览根，但它在 .gitignore 里 —— 新 clone 或刚删过数据时目录可能不存在，
+    # 此时直接 iterdir() 会抛 FileNotFoundError（前端表现为"加载失败"）。这里先补建一个空目录。
+    if not JOBS_ROOT.exists():
+        try:
+            JOBS_ROOT.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
     p = Path(dir_path).expanduser() if dir_path else JOBS_ROOT
     if not p.is_dir():
         p = JOBS_ROOT
@@ -510,7 +518,7 @@ def browse(dir_path: str, depth: int = 0) -> dict:
                 if item.is_dir() and remaining_depth != 0:
                     entry["children"] = _scan(item, remaining_depth - 1 if remaining_depth > 0 else -1)
                 entries.append(entry)
-        except PermissionError:
+        except (PermissionError, FileNotFoundError, NotADirectoryError):
             pass
         return entries
 
