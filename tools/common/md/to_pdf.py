@@ -13,7 +13,8 @@ to_pdf.py — Markdown / LaTeX → PDF 编译
     python to_pdf.py input.md --no-synctex
 
 说明:
-    - 默认引擎 pdflatex（ctexart 中文支持已验证）；中文亦可选 xelatex/lualatex。
+    - 默认引擎 xelatex（pdflatex 在带中文小标题/行内中文的笔记上会
+      `! Undefined control sequence ... \CJK@plane` 直接中止，2026-09-29 实测）。
     - --open 用系统默认 PDF 查看器打开；--sumatra 指定 SumatraPDF 时以
       -reuse-instance 复用窗口刷新（配合 watch.py 实现"左改右看"）。
     - 生成的 .synctex.gz 会与 PDF 放在一起，供编辑器正反向定位。

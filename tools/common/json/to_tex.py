@@ -17,6 +17,9 @@ to_tex.py — JSON → LaTeX 渲染（统一入口，自动识别 JSON schema）
 容错:
     - 数学中的空 array 列格式（\\begin{array}{}）会按行内容自动补全列数并打印警告，
       JSON 中间态本身不被修改（兜底只发生在渲染层）。
+    - 文本段的 LaTeX 特殊字符统一转义（含**反斜杠**：正文里的 `D:\\tools\\x`、`'\\0'`
+      会变成 `\\textbackslash{}`，否则进 .tex 就是未定义控制序列、编译中止）；
+      行内代码（反引号内）先切出来、只转义一次，避免 `snake_case` 变成 `snake\\{}_case`。
 """
 
 import argparse
@@ -31,7 +34,10 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
 # ── LaTeX 特殊字符转义（仅对非数学文本段生效）───────────────────
+# 反斜杠必须一起转义：正文里的 Windows 路径（D:\tools\x）、C 代码里的 '\0'、'\t'
+# 若原样进 .tex 会变成未定义控制序列，latexmk 带 -halt-on-error 直接中止、不出 PDF。
 _ESCAPE_MAP = {
+    "\\": r"\textbackslash{}",
     "&": r"\&",
     "%": r"\%",
     "$": r"\$",
@@ -42,7 +48,7 @@ _ESCAPE_MAP = {
     "~": r"\textasciitilde{}",
     "^": r"\^{}",
 }
-_ESCAPE_RE = re.compile(r"[&%$#_{}~^]")
+_ESCAPE_RE = re.compile(r"[\\&%$#_{}~^]")
 
 # 行内数学：先匹配 $$...$$（同行的显示数学），再匹配 $...$（可跨行，段落已拼接为单行）
 _INLINE_MATH_RE = re.compile(r"(\$\$[^$\n]*\$\$|\$[^$\n]*\$)")
@@ -113,26 +119,36 @@ def _emit_display(source: str) -> str:
     return "\\[\n" + source + "\n\\]"
 
 
+def _code_tex(code: str) -> str:
+    """行内代码 → \\texttt{}：代码段内容只在这里转义一次。"""
+    code = code.replace("\\", r"\textbackslash{}")
+    code = code.replace("{", r"\{").replace("}", r"\}")
+    code = code.replace("$", r"\$").replace("%", r"\%").replace("#", r"\#")
+    code = code.replace("_", r"\_").replace("^", r"\^{}").replace("~", r"\textasciitilde{}")
+    code = code.replace("&", r"\&")
+    return r"\texttt{" + code + "}"
+
+
 def _inline_text(text: str) -> str:
-    """非数学文本段的行内转换：转义 → 图片/链接/代码/粗斜体 → <br>。"""
-    text = _escape(text)
-    text = _IMG_RE.sub(lambda m: r"\includegraphics[width=0.8\linewidth]{" + m.group(2).strip() + "}", text)
-    text = _LINK_RE.sub(lambda m: r"\href{" + _url_escape(m.group(2)) + "}{" + m.group(1) + "}", text)
-    # 代码块内需要转义 LaTeX 特殊字符，避免 \frac 等被当作命令解析
-    def _code_repl(m):
-        code = m.group(1)
-        # 先转义反斜杠，再转义其他特殊字符
-        code = code.replace("\\", r"\textbackslash{}")
-        code = code.replace("{", r"\{").replace("}", r"\}")
-        code = code.replace("$", r"\$").replace("%", r"\%").replace("#", r"\#")
-        code = code.replace("_", r"\_").replace("^", r"\^{}").replace("~", r"\textasciitilde{}")
-        code = code.replace("&", r"\&")
-        return r"\texttt{" + code + "}"
-    text = _CODE_RE.sub(_code_repl, text)
-    text = _BOLD_RE.sub(r"\textbf{\1}", text)
-    text = _ITALIC_RE.sub(r"\textit{\1}", text)
-    text = text.replace("<br>", r"\\").replace("<br/>", r"\\")
-    return text
+    """非数学文本段的行内转换：切出行内代码 → 其余段转义 → 图片/链接/粗斜体 → <br>。
+
+    行内代码必须**先切出来**再转义：若先对整行 `_escape`（`_` → `\\_`），随后 `_code_tex`
+    又把那个反斜杠当成代码内容转义一次，`snake_case` 就会渲染成 `snake\\{}_case` 这类垃圾字
+    —— 编译不报错，只是内容悄悄坏掉。
+    """
+    out = []
+    for idx, part in enumerate(_CODE_RE.split(text)):
+        if idx % 2:  # 奇数段 = 反引号里的代码
+            out.append(_code_tex(part))
+            continue
+        part = _escape(part)
+        part = _IMG_RE.sub(lambda m: r"\includegraphics[width=0.8\linewidth]{" + m.group(2).strip() + "}", part)
+        part = _LINK_RE.sub(lambda m: r"\href{" + _url_escape(m.group(2)) + "}{" + m.group(1) + "}", part)
+        part = _BOLD_RE.sub(r"\textbf{\1}", part)
+        part = _ITALIC_RE.sub(r"\textit{\1}", part)
+        out.append(part)
+    text = "".join(out)
+    return text.replace("<br>", r"\\").replace("<br/>", r"\\")
 
 
 def _inline_pass(text: str) -> str:

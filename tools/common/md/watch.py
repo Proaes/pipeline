@@ -88,8 +88,8 @@ def main():
     parser.add_argument("input", help="单个 .md 文件或目录")
     parser.add_argument("--outdir", default=None,
                         help="PDF 输出目录（默认: 源在 N_xxx/ 槽位里 → 同级 (N+1)_pdf/；否则与 md 同目录）")
-    parser.add_argument("--engine", default="pdflatex", choices=["pdflatex", "xelatex", "lualatex"],
-                        help="编译引擎 [默认: pdflatex]")
+    parser.add_argument("--engine", default=None, choices=["pdflatex", "xelatex", "lualatex"],
+                        help="编译引擎（不给则沿用 to_pdf.py 的默认 xelatex；pdflatex 在中文笔记上会失败）")
     parser.add_argument("--no-synctex", action="store_true", help="不生成 synctex")
     parser.add_argument("--open", action="store_true", help="每次构建后用默认查看器打开")
     parser.add_argument("--sumatra", default=None, help="SumatraPDF 路径（-reuse-instance 刷新）")
