@@ -73,6 +73,23 @@ def _resolve_py_tts() -> str:
 
 PY_TTS = _resolve_py_tts()
 GENIE_ROOT = os.environ.get("GENIE_ROOT", r"D:\tools\genie")
+# GPT-SoVITS(api_v2) 服务：--engine gptsovits 走 HTTP 合成，需要它常驻；默认 127.0.0.1:9880
+TTS_HOST = os.environ.get("PIPELINE_TTS_HOST", "127.0.0.1")
+TTS_PORT = int(os.environ.get("PIPELINE_TTS_PORT", "9880"))
+TTS_SERVE_HINT = ("powershell -NoProfile -ExecutionPolicy Bypass -File "
+                  + str(ROOT / "output" / "tts" / "p10_serve_si.ps1"))
+
+
+def tts_service_alive(host: str = "", port: int = 0, timeout: float = 0.8) -> bool:
+    """GPT-SoVITS 服务在不在：端口能连上就算（与 to_audio.py 的判据一致）。"""
+    import socket  # 只有 TTS 这一路用得到，就近导入
+
+    try:
+        with socket.create_connection((host or TTS_HOST, port or TTS_PORT), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
 TEXT_TO_AUDIO = TOOLS / "common" / "text" / "to_audio.py"
 TO_PDF = TOOLS / "common" / "md" / "to_pdf.py"
 TO_JSON = TOOLS / "common" / "md" / "to_json.py"
@@ -188,9 +205,20 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
         if ext not in (".md", ".markdown", ".txt"):
             return []
         fmt = opts.get("audio_format") or "mp3"
-        cmd = [PY_TTS, str(TEXT_TO_AUDIO), str(file),
-               "-o", str(out / f"{stem}.{fmt}"),
-               "--format", fmt, "--genie-root", GENIE_ROOT]
+        tts_engine = str(opts.get("tts_engine") or "gptsovits")
+        label = "TTS/GPT-SoVITS 微调" if tts_engine == "gptsovits" else "TTS/GENIE"
+        step = {"step": f"文本 → {fmt.upper()}（{label}）",
+                "cmd": [PY_TTS, str(TEXT_TO_AUDIO), str(file),
+                        "-o", str(out / f"{stem}.{fmt}"),
+                        "--engine", tts_engine, "--format", fmt, "--genie-root", GENIE_ROOT]}
+        cmd = step["cmd"]
+        if tts_engine == "gptsovits":
+            cmd += ["--host", TTS_HOST, "--port", str(TTS_PORT)]
+            # 服务没起就直接给建议，不等到子进程报连接失败
+            if not tts_service_alive():
+                step["precheck"] = (f"GPT-SoVITS 服务没在跑（{TTS_HOST}:{TTS_PORT}）。\n"
+                                    f"    先起服务：{TTS_SERVE_HINT}\n"
+                                    f"    或把 TTS 引擎切回 GENIE（纯 CPU，无需服务）")
         if force:
             cmd.append("-f")
         if opts.get("voice"):
@@ -203,7 +231,7 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
                 cmd += [flag, str(val)]
         if opts.get("audio_srt"):
             cmd.append("--srt")
-        return [{"step": f"文本 → {fmt.upper()}（TTS）", "cmd": cmd}]
+        return [step]
 
     if target == "pdf":
         if ext in (".md", ".tex"):
@@ -234,6 +262,10 @@ def convert_one(file: Path, target: str, engine: str, outdir: str,
                 open_pdf: bool, force: bool = False,
                 opts: dict | None = None) -> dict:
     steps = _steps_for(file, target, engine, outdir, open_pdf, force, opts)
+    if steps and steps[0].get("precheck"):
+        # 前置条件不满足（如 TTS 服务没起）：直接回一条带建议的失败，不跑子进程
+        return {"file": str(file), "ok": False, "steps": [
+            {"step": steps[0]["step"], "ok": False, "out": "", "err": steps[0]["precheck"]}]}
     if not steps:
         ok_exts = "、".join(SUPPORTED_EXTS.get(target, ())) or "（无）"
         err = (f"不支持: {file.name} + 目标 {target}"
@@ -329,7 +361,8 @@ def tts_voices() -> dict:
         ok, message = False, f"GENIE 资源缺失: {GENIE_ROOT}\\GenieData"
 
     return {"ok": ok, "message": message, "registry": registry,
-            "builtin": builtin, "py": PY_TTS, "genie_root": GENIE_ROOT}
+            "builtin": builtin, "py": PY_TTS, "genie_root": GENIE_ROOT,
+            "service": {"host": TTS_HOST, "port": TTS_PORT, "alive": tts_service_alive()}}
 
 
 # ── watch 状态 ──────────────────────────────────────────────
