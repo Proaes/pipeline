@@ -86,7 +86,8 @@ def main():
         "  python watch.py notes_dir --recursive --interval 0.5\n",
     )
     parser.add_argument("input", help="单个 .md 文件或目录")
-    parser.add_argument("--outdir", default=None, help="PDF 输出目录（默认: 与 md 同目录）")
+    parser.add_argument("--outdir", default=None,
+                        help="PDF 输出目录（默认: 源在 N_xxx/ 槽位里 → 同级 (N+1)_pdf/；否则与 md 同目录）")
     parser.add_argument("--engine", default="pdflatex", choices=["pdflatex", "xelatex", "lualatex"],
                         help="编译引擎 [默认: pdflatex]")
     parser.add_argument("--no-synctex", action="store_true", help="不生成 synctex")

@@ -22,7 +22,7 @@
 | 表格 → 折线图 / 柱状图 / 散点图 | `common/csv/to_chart.py` | CSV/TSV → PNG/SVG/PDF；选 x 与多列 y，自动跳过说明行与汇总行；表头重名用 `#N` 列号，`--list-columns` 先看列 |
 | Markdown → JSON | `common/md/to_json.py` | 笔记结构化中间态（`--lint` 检查写法） |
 | Markdown → LaTeX | `common/md/to_json.py` → `common/json/to_tex.py` | 两步串联（blocks 结构） |
-| Markdown / LaTeX → PDF | `common/md/to_pdf.py` | latexmk 编译，含 synctex 定位 |
+| Markdown / LaTeX → PDF | `common/md/to_pdf.py` | latexmk 编译，含 synctex 定位；不给 `-o` 时按槽位规则落同级 `(N+1)_pdf/` |
 | Markdown 笔记实时预览 | `common/md/watch.py` | 监听 md，保存即自动转 PDF |
 | 文件转换图形界面 | `gui/server.py`（或双击 `run_gui.bat`，pipeline 根目录 / `launchers/` 各一份） | 本地 Web 面板：浏览 jobs/ 选文件、PDF/TeX/JSON/MD/DOCX/lint/图片OCR/文本转语音 转换（输入 md/tex/ppt/pptx/txt，`.ppt` 自动先转 `.pptx`）、一键启动 Ollama/拉取模型、实时日志、watch 监听 |
 | 图片 → Markdown | `common/images/to_md.py` | 批量 OCR（Ollama） |
@@ -203,7 +203,7 @@ python tools/main.py --list         # 仅列出任务
 3. **路径**：支持相对（相对项目根）和绝对路径；bat 已自动 `cd` 到项目根。
 4. **编码**：全部 UTF-8；JSON 输出保留中文（`ensure_ascii=False`）。
 5. **数据层不入库**：`jobs/`、`input/`、`output/` 等由 `.gitignore` 排除，仅脚本/配置/文档进 git。
-6. **任务归档规范**：见 `jobs_template.md`（任务命名 `YYMMDDHHMMSS_任务名`，槽位 `0_源/1_转/2_成品`）。
+6. **任务归档规范**：见 `jobs_template.md`（任务命名 `YYMMDDHHMMSS_任务名`，槽位 `0_源/1_转/2_成品`）。**默认输出槽位 = 源槽位号 + 1**：源在 `0_md/` 里转 PDF 就落同级 `1_pdf/`（TeX → `1_tex/`、JSON → `1_json/`，其余同理）；源不在 `N_xxx/` 槽位里则与源文件同目录。GUI 的「输出目录」留空、`md/to_pdf.py`（含 `watch.py`）不给 `-o` 时都按这条走；显式指定输出目录始终优先。OCR 是目录级输入，源目录不在槽位里时回落上级 `2_md/`。
 7. **Markdown 笔记链**：`md/to_json.py`（解析）→ `json/to_tex.py`（渲染，自动识别 blocks/slides 结构）→ `md/to_pdf.py`（latexmk 编译，产物含 PDF + synctex.gz）。渲染层兜底：数学段中文自动包 `\text{}`、空 `\begin{array}{}` 自动补列数，均打印警告；中文文档默认 pdflatex 已验证（TeX Live + ctex），复杂 Unicode 可用 `--engine xelatex`。
 8. **实时预览**：`launchers/run_md_to_pdf.bat`（拖 md 即编译）、`run_md_watch.bat`（监听实时重建）；脚本优先使用 conda 环境 `D:\mamba\envs\proaes\python.exe`（回退 `python`）。
 9. **旧版 `.ppt`（PowerPoint 97-2003）**：是 OLE2 复合文档（magic `D0 CF 11 E0 A1 B1 1A E1`），`python-pptx` 只认 OOXML，读不了 → 必须先过 `tools/common/ppt/to_pptx.py`（后端顺序 PowerPoint COM → WPS COM → LibreOffice，`--backend` 可指定；COM 用 `DispatchEx` 起独立实例，不影响你桌面上已打开的 PowerPoint）。脚本按 **magic 而非扩展名**判真实格式：内容已是 OOXML 的"假 .ppt"直接复制、不启动 Office；既非 OLE2 也非 ZIP 的报 magic 并退出。输出已存在时**报错不覆盖**，需 `-f`（GUI 里对应「覆盖已存在产物」复选框）。GUI 选 `.ppt` 时会自动串这一步，中间产物 `.pptx` 与目标产物落在同一输出目录。

@@ -20,7 +20,10 @@ API:
         输入类型 × 目标见 SUPPORTED_EXTS：md → pdf/tex/json/lint；tex → pdf；
         ppt/pptx → json/md/tex/docx/pdf（.ppt 先经 tools/common/ppt/to_pptx.py 转 OOXML）
         force：OCR 覆盖已存在产物；也用于 .ppt → .pptx 覆盖同名中间文件
-        image 目标：files 为目录（批量 OCR），输出默认 <目录>/../2_md
+        image 目标：files 为目录（批量 OCR），输出默认落源目录的下一转槽位
+    outdir 留空时的默认输出目录：源在任务槽位目录 N_xxx/ 里（如 0_md/）→ 同级
+    (N+1)_<目标类型>/（0_md/note.md 转 PDF → 1_pdf/，规则见 pipeline/jobs_template.md）；
+    源不在槽位里 → 与源文件同目录。OCR 是目录级输入，源目录不在槽位里时回落 上级/2_md。
     POST /api/watch            → 开始/停止监听
         body: {action: "start"|"stop", file, outdir}
     GET  /api/watch            → {running, file, lines:[...]}
@@ -45,7 +48,14 @@ ROOT = BASE.parent                              # pipeline/
 TOOLS = ROOT / "tools"
 STATIC = BASE / "static"
 
+sys.path.insert(0, str(TOOLS))                  # 复用 tools/_lib 的槽位解析
+from _lib import common as _common  # noqa: E402
+
 PY = sys.executable
+
+# 目标格式 → 槽位类型短名（源在 N_xxx/ 里时，默认输出到同级 (N+1)_<短名>/）
+_TARGET_SLOT = {"pdf": "pdf", "tex": "tex", "json": "json", "md": "md",
+                "docx": "docx", "lint": "json"}
 
 
 def _resolve_py_tts() -> str:
@@ -163,8 +173,13 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
     """
     opts = opts or {}
     stem = file.stem
-    out = Path(outdir) if outdir else file.parent
     ext = file.suffix.lower()
+    # 留空 outdir = 自动槽位：源在 N_xxx/ 里 → 同级 (N+1)_<目标类型>/；否则与源同目录
+    if target == "audio":
+        slot_suffix = str(opts.get("audio_format") or "mp3")
+    else:
+        slot_suffix = _TARGET_SLOT.get(target, target)
+    out = Path(outdir) if outdir else (_common.slot_dir(file, slot_suffix) or file.parent)
 
     if ext in (".ppt", ".pptx"):
         return _ppt_steps(file, target, engine, out, open_pdf, force)
@@ -247,7 +262,10 @@ def _count_images(p: Path, recursive: bool) -> int:
 
 
 def convert_image_dirs(dirs: list[str], outdir: str, recursive: bool, force: bool) -> list[dict]:
-    """图片 → MD（OCR）：目录级批量，输出默认落到所选目录的上级 2_md/ 槽位。"""
+    """图片 → MD（OCR）：目录级批量，输出默认落到源目录的下一转槽位。
+
+    源目录名是 N_xxx/（如 0_jpg/）→ 同级 (N+1)_md/；不在槽位里时回落上级 2_md/。
+    """
     results = []
     for d in dirs:
         p = Path(d)
@@ -265,7 +283,8 @@ def convert_image_dirs(dirs: list[str], outdir: str, recursive: bool, force: boo
                 {"step": "图片检查", "ok": False, "out": "", "err": f"目录下未找到图片{hint}"}]})
             continue
 
-        out = Path(outdir) if outdir else (p.parent / "2_md")
+        out = Path(outdir) if outdir else (_common.slot_dir(p, "md", is_dir=True)
+                                          or (p.parent / "2_md"))
         before = len(list(out.glob("*.md"))) if out.exists() else 0
         cmd = [PY, str(IMAGE_TO_MD), "-i", str(p), "-o", str(out)]
         if recursive:

@@ -17,6 +17,8 @@ to_pdf.py — Markdown / LaTeX → PDF 编译
     - --open 用系统默认 PDF 查看器打开；--sumatra 指定 SumatraPDF 时以
       -reuse-instance 复用窗口刷新（配合 watch.py 实现"左改右看"）。
     - 生成的 .synctex.gz 会与 PDF 放在一起，供编辑器正反向定位。
+    - 不给 -o 时的输出位置：源文件在任务槽位目录 N_xxx/（如 0_md/）里 → 同级
+      (N+1)_pdf/；不在槽位里 → 与源文件同目录。槽位规则见 pipeline/jobs_template.md。
 """
 
 import argparse
@@ -30,8 +32,10 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR.parents[1]))  # tools/，供 _lib 复用
 
 import to_json  # noqa: E402
+from _lib import common  # noqa: E402
 
 # 统一 UTF-8 输出（管道/文件重定向时避免依赖控制台代码页）
 for _s in (sys.stdout, sys.stderr):
@@ -102,7 +106,8 @@ def main():
         "  python to_pdf.py note.md --sumatra D:\\tools\\SumatraPDF\\SumatraPDF.exe\n",
     )
     parser.add_argument("input", help="输入 .md 或 .tex 文件")
-    parser.add_argument("-o", "--output", default=None, help="输出 .pdf 路径（默认: input.pdf）")
+    parser.add_argument("-o", "--output", default=None,
+                        help="输出 .pdf 路径（默认: 源在 N_xxx/ 槽位里 → 同级 (N+1)_pdf/；否则与源同目录）")
     parser.add_argument("--engine", choices=list(_ENGINE_FLAG), default="xelatex",
                         help="编译引擎 [默认: xelatex，pdflatex 可能有 CJK 兼容问题]")
     parser.add_argument("--no-synctex", action="store_true", help="不生成 synctex（默认生成）")
@@ -170,7 +175,14 @@ def main():
         sys.exit(1)
 
     # ── 3) 产物拷回输出位置 ──
-    output = Path(args.output) if args.output else src.with_suffix(".pdf")
+    if args.output:
+        output = Path(args.output)
+    else:
+        # 源在任务槽位目录里时按「槽位号 + 1」落同级目录（0_md/ → 1_pdf/）
+        slot = common.slot_dir(src, "pdf")
+        output = (slot / f"{src.stem}.pdf") if slot else src.with_suffix(".pdf")
+        if slot:
+            print(f"[槽位] 源在 {src.parent.name}/ → 输出 {slot.name}/")
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(pdf, output)

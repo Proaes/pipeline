@@ -14,6 +14,7 @@ _lib/common.py — 工具共享脚手架
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -61,6 +62,27 @@ def resolve_output(input_path: Path, output: str | None, outdir: str | None,
     if outdir:
         return ensure_parent(Path(outdir) / f"{input_path.stem}.{suffix}")
     return ensure_parent(input_path.with_suffix(f".{suffix}"))
+
+
+# 任务槽位目录名：<槽位号>_<类型>，见 pipeline/jobs_template.md（0_源 / 1_一转 / 2_二转 …）。
+# 槽位号限 1–2 位：任务目录本身（如 20260829171857_gmath）也是"数字_名字"，不能当槽位。
+_SLOT_RE = re.compile(r"^(\d{1,2})_(.+)$")
+
+
+def slot_dir(src: Path, suffix: str, is_dir: bool = False) -> Path | None:
+    """按「源槽位号 + 1」算输出槽位目录；源不在 N_xxx/ 槽位里时返回 None。
+
+    src 是文件时看它所在的目录名（0_md/note.md → 同级 1_pdf/），
+    is_dir=True 时看 src 自己的目录名（0_jpg/ → 同级 1_md/）。
+    suffix 是目标类型的短名（pdf / tex / json / md / docx / mp3…），不带点。
+    返回 None 表示调用方该回落到自己的默认值（与源同目录）。
+    """
+    src = Path(src)
+    d = src if is_dir else src.parent
+    m = _SLOT_RE.match(d.name)
+    if not m:
+        return None
+    return d.parent / f"{int(m.group(1)) + 1}_{suffix}"
 
 
 def print_summary(results: dict[str, str]) -> None:

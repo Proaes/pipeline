@@ -21,6 +21,7 @@ from _lib import common
 | `ensure_parent(path)` | 确保输出父目录存在 |
 | `write_json / read_json` | UTF-8 JSON 读写（保留中文） |
 | `resolve_output(...)` | 统一解析输出路径（`-o` > `--outdir` > 输入同目录） |
+| `slot_dir(src, suffix, is_dir=False)` | 按「源槽位号 + 1」算输出槽位目录（`0_md/note.md` → 同级 `1_pdf/`）；源不在 `N_xxx/` 里时返回 `None`，由调用方回落默认值 |
 | `print_summary(results)` | 打印结果摘要 |
 
 ## 约定

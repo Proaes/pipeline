@@ -139,7 +139,7 @@
         <option value="pdflatex">pdflatex</option>
         <option value="lualatex">lualatex</option>
       </select>
-      　输出目录：<input id="outdir" placeholder="留空 = 与源文件同目录（OCR 默认上级/2_md）" style="width:300px">
+      　输出目录：<input id="outdir" placeholder="留空 = 源在 N_xxx/ 槽位则同级 (N+1)_目标/，否则与源同目录（OCR 无槽位时上级/2_md）" style="width:300px">
     </div>
     <div id="ocropts" class="opt-row" style="display:none">
       <label><input type="checkbox" id="ocr_recursive"> 递归子目录</label>
