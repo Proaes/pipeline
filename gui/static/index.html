@@ -133,6 +133,7 @@
       <label><input type="radio" name="target" value="docx"> DOCX</label>
       <label><input type="radio" name="target" value="lint"> lint 检查</label>
       <label><input type="radio" name="target" value="image"> 图片→MD (OCR)</label>
+      <label><input type="radio" name="target" value="audio"> 文本→语音 (TTS)</label>
       　引擎：<select id="engine">
         <option value="xelatex">xelatex（推荐）</option>
         <option value="pdflatex">pdflatex</option>
@@ -145,6 +146,16 @@
       <button id="ocrstart">🚀 启动 Ollama</button>
       <button id="ocrpull">⬇ 拉取模型</button>
       <span id="ocrstatus" class="dim">（检查 Ollama…）</span>
+    </div>
+    <div id="ttsopts" class="opt-row" style="display:none">
+      音色：<select id="tts_voice"><option value="">（默认）</option></select>
+      　格式：<select id="tts_format">
+        <option value="mp3">mp3</option>
+        <option value="wav">wav</option>
+      </select>
+      　收尾静音：<input id="tts_tail_pad" type="number" step="0.05" min="0" value="0.55" style="width:72px"> 秒
+      <label><input type="checkbox" id="tts_srt"> 同时输出 .srt 时间轴</label>
+      <span id="ttsstatus" class="dim">（检查 TTS 环境…）</span>
     </div>
     <div class="opt-row">
       <label><input type="checkbox" id="openpdf"> 转换后打开 PDF</label>
@@ -204,6 +215,7 @@ const TARGET_EXTS = {
   md:   new Set(["ppt", "pptx"]),
   docx: new Set(["ppt", "pptx"]),
   lint: new Set(["md"]),
+  audio: new Set(["md", "markdown", "txt"]),
 };
 const TARGET_HINTS = {
   pdf:   "md/tex/ppt/pptx → PDF（latexmk，需 TeX Live）",
@@ -213,6 +225,7 @@ const TARGET_HINTS = {
   docx:  "ppt/pptx → Word",
   lint:  "只检查 md 笔记写法（不改源文件）",
   image: "选「含图片的目录」批量 OCR（需 Ollama + qwen2.5vl）",
+  audio: "md/txt → 语音（GENIE，纯 CPU 不占显存；长文自动切句）",
 };
 const PPT_NOTE = "；.ppt 会先转 .pptx（需本机 PowerPoint 或 WPS）";
 const IMG_EXTS = new Set(["jpg","jpeg","png","bmp","webp","tiff","tif","gif"]);
@@ -632,13 +645,41 @@ function logLine(container, text, cls) {
 document.querySelectorAll("input[name=target]").forEach(r => {
   r.onchange = () => {
     const img = isImageMode();
+    const aud = (currentTarget() === "audio");
     $("ocropts").style.display = img ? "" : "none";
+    $("ttsopts").style.display = aud ? "" : "none";
     $("pickdir").style.display = img ? "" : "none";
     if (img) ocrCheck();
+    if (aud) ttsCheck();
     updateTargetHint();
     renderTree(); // 切换模式时刷新树（图片模式隐藏文件复选框；可选扩展名也随目标变化）
   };
 });
+
+/* ── TTS 环境与音色 ── */
+let ttsLoaded = false;
+async function ttsCheck() {
+  const st = $("ttsstatus");
+  try {
+    const d = await api("/api/tts/voices");
+    if (!d.ok) { st.textContent = "⚠ " + (d.message || "TTS 环境未就绪"); return; }
+    st.textContent = "● 就绪";
+    if (!ttsLoaded) {
+      const selv = $("tts_voice");
+      const add = (label, names) => (names || []).forEach(n => {
+        const o = document.createElement("option");
+        o.value = n;
+        o.textContent = n + "（" + label + "）";
+        selv.appendChild(o);
+      });
+      add("预设角色", d.builtin);
+      add("我的音色", d.registry);
+      ttsLoaded = true;
+    }
+  } catch (e) {
+    st.textContent = "⚠ 查询失败：" + e;
+  }
+}
 
 async function ocrCheck() {
   const st = $("ocrstatus");
@@ -681,6 +722,10 @@ $("convert").onclick = async () => {
         target, engine: $("engine").value,
         outdir: $("outdir").value.trim(),
         open_pdf: $("openpdf").checked,
+        audio_format: $("tts_format").value,
+        voice: $("tts_voice").value,
+        audio_tail_pad: $("tts_tail_pad").value,
+        audio_srt: $("tts_srt").checked,
         recursive: $("ocr_recursive").checked,
         force: $("force").checked,
       }),

@@ -28,6 +28,7 @@ API:
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,24 @@ TOOLS = ROOT / "tools"
 STATIC = BASE / "static"
 
 PY = sys.executable
+
+
+def _resolve_py_tts() -> str:
+    """TTS 工具需要装了 genie-tts 的解释器；它通常不是启动本 GUI 的那个。
+
+    GUI 子进程用的是 `PY = sys.executable`，而 genie-tts 装在独立环境里，
+    所以文本转语音这一路必须换解释器，否则界面看着正常、一转换就报缺库。
+    """
+    env = os.environ.get("PIPELINE_TTS_PY")
+    if env and Path(env).is_file():
+        return env
+    default = Path(r"D:\mamba\envs\tts\python.exe")
+    return str(default) if default.is_file() else PY
+
+
+PY_TTS = _resolve_py_tts()
+GENIE_ROOT = os.environ.get("GENIE_ROOT", r"D:\tools\genie")
+TEXT_TO_AUDIO = TOOLS / "common" / "text" / "to_audio.py"
 TO_PDF = TOOLS / "common" / "md" / "to_pdf.py"
 TO_JSON = TOOLS / "common" / "md" / "to_json.py"
 JSON_TO_TEX = TOOLS / "common" / "json" / "to_tex.py"
@@ -85,6 +104,7 @@ SUPPORTED_EXTS = {
     "md": (".ppt", ".pptx"),
     "docx": (".ppt", ".pptx"),
     "lint": (".md",),
+    "audio": (".md", ".markdown", ".txt"),
 }
 
 
@@ -133,18 +153,42 @@ def _ppt_steps(file: Path, target: str, engine: str, out: Path,
 
 
 def _steps_for(file: Path, target: str, engine: str, outdir: str,
-               open_pdf: bool, force: bool = False) -> list[dict]:
+               open_pdf: bool, force: bool = False,
+               opts: dict | None = None) -> list[dict]:
     """按目标格式拼装子进程步骤（返回空列表 = 该「输入类型 + 目标」组合不支持）。
 
-    已接入: md（json/tex/pdf/lint）、tex（pdf）、ppt/pptx（json/md/tex/docx/pdf）。
+    已接入: md（json/tex/pdf/lint/audio）、tex（pdf）、ppt/pptx（json/md/tex/docx/pdf）、
+            md/txt（audio，文本转语音，走独立解释器 PY_TTS）。
     预留扩展位: sql → drawio（tools/common/sql/to_drawio.py，需再加一个 drawio 目标）。
     """
+    opts = opts or {}
     stem = file.stem
     out = Path(outdir) if outdir else file.parent
     ext = file.suffix.lower()
 
     if ext in (".ppt", ".pptx"):
         return _ppt_steps(file, target, engine, out, open_pdf, force)
+
+    if target == "audio":
+        if ext not in (".md", ".markdown", ".txt"):
+            return []
+        fmt = opts.get("audio_format") or "mp3"
+        cmd = [PY_TTS, str(TEXT_TO_AUDIO), str(file),
+               "-o", str(out / f"{stem}.{fmt}"),
+               "--format", fmt, "--genie-root", GENIE_ROOT]
+        if force:
+            cmd.append("-f")
+        if opts.get("voice"):
+            cmd += ["--voice", str(opts["voice"])]
+        for key, flag in (("audio_gap", "--gap"), ("audio_tail_pad", "--tail-pad"),
+                          ("audio_head_pad", "--head-pad"), ("audio_fade", "--fade"),
+                          ("audio_trim_tail", "--trim-tail-ms")):
+            val = opts.get(key)
+            if val not in (None, ""):
+                cmd += [flag, str(val)]
+        if opts.get("audio_srt"):
+            cmd.append("--srt")
+        return [{"step": f"文本 → {fmt.upper()}（TTS）", "cmd": cmd}]
 
     if target == "pdf":
         if ext in (".md", ".tex"):
@@ -172,8 +216,9 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
 
 
 def convert_one(file: Path, target: str, engine: str, outdir: str,
-                open_pdf: bool, force: bool = False) -> dict:
-    steps = _steps_for(file, target, engine, outdir, open_pdf, force)
+                open_pdf: bool, force: bool = False,
+                opts: dict | None = None) -> dict:
+    steps = _steps_for(file, target, engine, outdir, open_pdf, force, opts)
     if not steps:
         ok_exts = "、".join(SUPPORTED_EXTS.get(target, ())) or "（无）"
         err = (f"不支持: {file.name} + 目标 {target}"
@@ -240,6 +285,32 @@ def convert_image_dirs(dirs: list[str], outdir: str, recursive: bool, force: boo
         results.append({"file": d, "ok": r["ok"], "steps": [
             {"step": f"图片 → MD（OCR，{n_img} 张）", "ok": r["ok"], "out": r["out"], "err": r["err"]}]})
     return results
+
+
+# ── TTS 音色 ────────────────────────────────────────────────
+def tts_voices() -> dict:
+    """列出可用音色（voices/ 注册的 + GENIE 预设角色），并报告 TTS 环境是否就绪。"""
+    registry: list[str] = []
+    builtin: list[str] = []
+    vdir = ROOT / "voices"
+    if vdir.is_dir():
+        registry = sorted(p.name for p in vdir.iterdir()
+                          if p.is_dir() and not p.name.startswith("_"))
+    chardir = Path(GENIE_ROOT) / "CharacterModels" / "v2ProPlus"
+    if chardir.is_dir():
+        builtin = sorted(p.name for p in chardir.iterdir()
+                         if (p / "tts_models").is_dir())
+
+    ok, message = True, ""
+    if not Path(PY_TTS).is_file():
+        ok, message = False, f"TTS 解释器不可用: {PY_TTS}"
+    elif not TEXT_TO_AUDIO.is_file():
+        ok, message = False, f"找不到 {TEXT_TO_AUDIO}"
+    elif not (Path(GENIE_ROOT) / "GenieData").is_dir():
+        ok, message = False, f"GENIE 资源缺失: {GENIE_ROOT}\\GenieData"
+
+    return {"ok": ok, "message": message, "registry": registry,
+            "builtin": builtin, "py": PY_TTS, "genie_root": GENIE_ROOT}
 
 
 # ── watch 状态 ──────────────────────────────────────────────
@@ -487,6 +558,8 @@ class Handler(BaseHTTPRequestHandler):
                     except ValueError:
                         depth = 0
             self._send_json(browse(dir_arg, depth))
+        elif path == "/api/tts/voices":
+            self._send_json(tts_voices())
         elif path == "/api/ocr/check":
             self._send_json(ocr_check())
         else:
@@ -512,7 +585,7 @@ class Handler(BaseHTTPRequestHandler):
                 open_pdf = bool(body.get("open_pdf"))
                 force = bool(body.get("force"))
                 results = [
-                    convert_one(Path(f), target, engine, outdir, open_pdf, force)
+                    convert_one(Path(f), target, engine, outdir, open_pdf, force, body)
                     for f in files
                 ]
             self._send_json({"results": results})

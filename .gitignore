@@ -9,6 +9,8 @@ download/
 other_files/
 # 软删除区
 recycle_bin/
+# 音色库（含声纹素材与逐字文本）—— 本仓库公开，不发布别人的声音
+voices/
 
 # ============ 敏感文件（绝不提交） ============
 cookies.txt
