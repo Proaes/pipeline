@@ -32,7 +32,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-sys.path.insert(0, str(SCRIPT_DIR.parents[1]))  # tools/，供 _lib 复用
+sys.path.append(str(SCRIPT_DIR.parents[1]))  # tools/，供 _lib 复用（放末尾，避免遮挡同名模块）
 
 import to_json  # noqa: E402
 from _lib import common  # noqa: E402

@@ -48,7 +48,7 @@ ROOT = BASE.parent                              # pipeline/
 TOOLS = ROOT / "tools"
 STATIC = BASE / "static"
 
-sys.path.insert(0, str(TOOLS))                  # 复用 tools/_lib 的槽位解析
+sys.path.append(str(TOOLS))                     # 复用 tools/_lib 的槽位解析（放末尾，避免遮挡同名模块）
 from _lib import common as _common  # noqa: E402
 
 PY = sys.executable
