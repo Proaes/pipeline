@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo ============================================
 echo   视频下载工具 (B站/YouTube)
 echo ============================================
@@ -25,13 +25,13 @@ set /p CHOICE="请选择 [1-4]: "
 echo.
 
 if "%CHOICE%"=="1" (
-    python download_video.py "%URL%" --output ./download --cookies cookies.txt
+    python tools\common\url\to_mp4.py "%URL%" --output ./download --cookies cookies.txt
 ) else if "%CHOICE%"=="2" (
-    python download_video.py "%URL%" --output ./download --cookies cookies.txt --transcribe --model qwen3asr
+    python tools\common\url\to_mp4.py "%URL%" --output ./download --cookies cookies.txt --transcribe --model qwen3asr
 ) else if "%CHOICE%"=="3" (
-    python download_video.py "%URL%" --output ./download --cookies cookies.txt --audio-only
+    python tools\common\url\to_mp4.py "%URL%" --output ./download --cookies cookies.txt --audio-only
 ) else if "%CHOICE%"=="4" (
-    python download_video.py "%URL%" --output ./download --cookies cookies.txt --audio-only --transcribe --model qwen3asr
+    python tools\common\url\to_mp4.py "%URL%" --output ./download --cookies cookies.txt --audio-only --transcribe --model qwen3asr
 ) else (
     echo [错误] 无效选择
 )

@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo ============================================
 echo   M3U8 本地视频转换工具
 echo ============================================
@@ -16,6 +16,6 @@ echo [OK] ffmpeg 可用
 echo.
 echo [2/2] 开始转换...
 echo.
-python fix_m3u8.py input --convert --outdir output
+python tools\common\url\fix_m3u8.py input --convert --outdir output
 echo.
 pause

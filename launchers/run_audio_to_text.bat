@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo ============================================
 echo   Qwen3-ASR-0.6B 音频转文本工具
 echo ============================================
@@ -18,5 +18,5 @@ echo [OK] 依赖检查通过
 echo.
 echo [2/2] 开始处理...
 echo.
-python audio_to_text.py input --outdir ./output_text --model qwen3asr --recursive
+python tools\common\audio\to_md.py input --outdir ./output_text --model qwen3asr --recursive
 pause

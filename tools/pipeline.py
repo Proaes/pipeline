@@ -99,7 +99,7 @@ def main():
     # ── Step 1: Extract JSON ──
     print(">> Step 1: 提取 PPTX -> JSON")
     extract_args = [str(input_path), "-o", str(json_path), "--indent", str(args.indent)]
-    if not run_step("extract.py", extract_args, "提取"):
+    if not run_step("common/pptx/to_json.py", extract_args, "提取"):
         sys.exit(1)
     print()
 
@@ -109,7 +109,7 @@ def main():
     if "md" in targets:
         md_path = out_dir / f"{stem}.md"
         print(">> Step 2a: JSON -> Markdown")
-        if run_step("render_md.py", [str(json_path), "-o", str(md_path)], "Markdown"):
+        if run_step("common/json/to_md.py", [str(json_path), "-o", str(md_path)], "Markdown"):
             results["md"] = str(md_path)
         print()
 
@@ -117,14 +117,14 @@ def main():
         tex_path = out_dir / f"{stem}.tex"
         print(">> Step 2b: JSON -> LaTeX")
         tex_args = [str(json_path), "-o", str(tex_path), "--mode", args.tex_mode]
-        if run_step("render_tex.py", tex_args, "LaTeX"):
+        if run_step("common/json/to_tex.py", tex_args, "LaTeX"):
             results["tex"] = str(tex_path)
         print()
 
     if "docx" in targets:
         docx_path = out_dir / f"{stem}.docx"
         print(">> Step 2c: JSON -> Word")
-        if run_step("render_docx.py", [str(json_path), "-o", str(docx_path)], "Word"):
+        if run_step("common/json/to_docx.py", [str(json_path), "-o", str(docx_path)], "Word"):
             results["docx"] = str(docx_path)
         print()
 
