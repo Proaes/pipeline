@@ -714,7 +714,16 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
             print(f"    {i:>3}. {c}")
         return True
 
-    workdir = Path(tempfile.mkdtemp(prefix="pipeline_tts_"))
+    # 临时工作目录：tempfile.mkdtemp 建出来的是 0o700，在沙箱里于其下再建子目录
+    # 会被拒（WinError 5 拒绝访问），因此允许用环境变量指定一个普通权限的目录。
+    _tmp_root = os.environ.get("PIPELINE_TTS_TMPDIR")
+    if _tmp_root:
+        _root = Path(_tmp_root)
+        _root.mkdir(parents=True, exist_ok=True)
+        workdir = _root / ("pipeline_tts_" + next(tempfile._get_candidate_names()))
+        workdir.mkdir(parents=True, exist_ok=True)
+    else:
+        workdir = Path(tempfile.mkdtemp(prefix="pipeline_tts_"))
     try:
         pairs = synth_all(chunks, opts, voice, workdir)
         if not pairs:
