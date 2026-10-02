@@ -195,8 +195,14 @@ pipeline/
 - **git 不允许同一分支被两棵工作树同时检出** ⇒ base 不能直接检出 `master`，
   所以它停在 `wt/integration`，最后 `fold` 折回（快进，不留额外提交）。
 - **`fold` 用 `update-ref` 而不是 `checkout`** ⇒ 启动仓库里有未提交的在制品也能折回，且不会被搅动。
-  代价：主仓工作区**不会自动出现**合并后的文件（分支指针动了、工作区没动），要看合并结果就读 `.worktrees/base/`，
-  或在方便时自己 `git checkout master` / `git reset --hard`。
+  代价：主仓工作区**不会自动出现**合并后的文件（分支指针动了、工作区没动），要看合并结果就读 `.worktrees/base/`。
+  **折回后把工作区同步到 HEAD**（想做就跑，不做也不影响仓库正确性）：
+  `git reset --hard` —— 只丢工作区差异，**不丢任何提交**（你的提交与合并都在 refs 里）；
+  在制品的正确开口方式是先 `git stash -u`，再 `reset --hard`，再 `git stash pop`。
+  > 本项目已在集成分支的 `.gitignore` 里写了 `/.worktrees/`，所以嵌套的工作树目录**不会**再出现在主仓 `git status` 里（261002 修的）。
+- **静态资源的 URL 方案**：`gui/static/` 下的文件一律走 **`/static/<相对路径>`**（绝对路径）。
+  从 `/index.html` 引 `./app.js` 会被浏览器解析成 `/app.js`（基路径 = `/`），而路由只认 `/static/…` ⇒ **404**。
+  这是 261002 踩到的真 bug：S1/S2 拆分后 JS/CSS **一直没被加载**，前端 agent 改成绝对路径才跑通。
 - **本机 harness 内层 shell 实测是 Windows PowerShell 5.1**（`PSEdition=Desktop`、无 `utf8NoBOM` 枚举、无 `pwsh`），
   所以 `wt.ps1` 里写文件走 `[System.IO.File]` + `UTF8Encoding($false)`，两代 PowerShell 都能跑且无 BOM。
 - **不要把 `-ErrorActionPreference` 设成 `Stop`**：git 的进度行（`Preparing worktree …`）走 stderr，
