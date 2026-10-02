@@ -50,6 +50,15 @@
 
 `/api/health` · `/api/watch` · `/api/browse` · `/api/ocr/check` · `/api/ocr/start` · `/api/ocr/pull` · `/api/convert`
 
+### 2.5 改判（261002 三次，Lead 拍板）
+
+1. **`/api/tts/serve/start` 的应答是 `status` 的「超集」** —— 保留原有 `started` / `log` 等字段，只**补** `ready` / `stage`。
+   （后端实现与契约文字原本留了歧义，此处明确：**不删既有字段**。）
+2. **`message` 语义**：在 `start` 应答里，`message` **以 start 动作自己的结果为准** ——
+   「已经在跑、不用重复启动」「找不到启动脚本」这类信息不能被 status 的通用文案覆盖；
+   `GET /api/tts/status` 里才用 status 的通用文案。
+   （理由：用户点了「启动」，看到的必须是"这次点击发生了什么"，否则会以为按钮没生效。）
+
 ## 3. 命名与路径
 
 - 分支：`wt/<任务名>`；工作树：`.worktrees/<任务名>/`
