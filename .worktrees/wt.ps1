@@ -482,14 +482,8 @@ function Invoke-Spawn { param([string]$Repo, [string]$Base, [string]$Name, [stri
 "@
   Write-SharedFile -Repo $Repo -Relative (Join-Path 'tasks' ($Name + '.md')) -Content $card
 
-  # 登记任务清单（base 侧，随 base 提交；老分支看不见这是正常的）
-  $tasksPath = Join-Path (Join-Path $Repo '.worktrees') '_shared/TASKS.md'
-  if (Test-Path -LiteralPath $tasksPath) {
-    $list = @(Get-OrderList $Repo)
-    if ($list -notcontains $Name) { $list += $Name }
-    $row = "| {0} | {1} | ``{2}`` | ``{3}`` | <依赖> | 待办 | {4} |" -f $list.Count, $Name, $Branch, $Scope, $Owner
-    Add-Utf8NoBom -Path $tasksPath -Text ($row + "`r`n")
-  }
+  # 登记任务清单（写协调层真源那份；见 Get-SharedRoot）
+  Add-TaskRow -Repo $Repo -Name $Name -Branch $Branch -Scope $Scope -Owner $Owner
 
   Add-OrderEntry -Repo $Repo -Name $Name
   Write-Info ("任务卡：{0}" -f (Join-Path $Repo ('.worktrees/_shared/tasks/' + $Name + '.md')))
@@ -621,6 +615,50 @@ function Save-AlignBookkeeping { param([string]$Repo)
   $staged = @(git -C $basePath diff --cached --name-only 2>$null)
   if ($staged.Count -eq 0) { return }
   $null = git -C $basePath commit -q -m 'chore(align): 记录本次合并与对齐快照' 2>$null
+}
+
+# 协调层的「真源」= base 工作树里那份（它随集成分支提交，是入库的）；
+# 没建 base 工作树时（init -NoBaseWorktree）才回落到主仓那份。
+# 两份同时存在时**只认 base 那份**：否则 spawn 写一份、clean 撤另一份，登记表必然对不上。
+function Get-SharedRoot { param([string]$Repo)
+  $baseShared = Join-Path (Join-Path $Repo '.worktrees\base') '.worktrees/_shared'
+  if (Test-Path -LiteralPath $baseShared) { return $baseShared }
+  return (Join-Path (Join-Path $Repo '.worktrees') '_shared')
+}
+
+function Get-TaskListPath { param([string]$Repo)
+  return (Join-Path (Get-SharedRoot $Repo) 'TASKS.md')
+}
+
+function Add-TaskRow { param([string]$Repo, [string]$Name, [string]$Branch, [string]$Scope, [string]$Owner)
+  $path = Get-TaskListPath $Repo
+  if (-not (Test-Path -LiteralPath $path)) { return }
+  $existing = @(Get-OrderList $Repo)
+  if ($existing -notcontains $Name) { $existing += $Name }
+  $row = "| {0} | {1} | ``{2}`` | ``{3}`` | <依赖> | 待办 | {4} |" -f $existing.Count, $Name, $Branch, $Scope, $Owner
+  Add-Utf8NoBom -Path $path -Text ($row + "`r`n")
+}
+
+# spawn 会往 TASKS.md 加一行，clean 必须把这一行撤掉 —— 否则登记表会攒下已经不存在的任务，
+# 而它是（入库的）协调层文件，假登记会被后续会话当成真任务。
+# 提交时**只 add 这一个文件**：主仓里可能有你正在写的别的东西，绝不能用 `git add -A`。
+function Remove-TaskRow { param([string]$Repo, [string]$Name)
+  $path = Get-TaskListPath $Repo
+  if (-not (Test-Path -LiteralPath $path)) { return }
+  $lines = @(Get-Content -LiteralPath $path)
+  $kept = @($lines | Where-Object { -not ($_ -match ('^\|\s*\d+\s*\|\s*' + [regex]::Escape($Name) + '\s*\|')) })
+  if ($kept.Count -eq $lines.Count) { return }
+  Write-Utf8NoBom -Path $path -Lines $kept
+
+  $top = [string](git -C (Split-Path -Parent $path) rev-parse --show-toplevel 2>$null)
+  if ($top) {
+    $top = $top.Trim()
+    $relPath = $path.Substring($top.Length).TrimStart('\', '/').Replace('\', '/')
+    Set-LocalGitIdentity $top
+    $null = git -C $top add -- $relPath 2>$null
+    $null = git -C $top commit -q -m ("chore(align): 撤销 {0} 的任务登记（工作树已清理）" -f $Name) 2>$null
+  }
+  Write-Info ("已在 TASKS.md 撤销任务行：{0}" -f $Name)
 }
 
 function Invoke-Merge { param([string]$Repo, [string]$Base, [string]$Name)
@@ -804,6 +842,7 @@ function Invoke-Clean { param([string]$Repo, [string]$Name, [switch]$Force)
     if ($r.ExitCode -ne 0) { Write-Fail ("移除失败：{0} —— {1}" -f $t.Name, $r.Output); continue }
     Write-Ok ("已移除工作树 {0}" -f $t.Name)
     $done += $t.Name
+    Remove-TaskRow -Repo $Repo -Name $t.Name
   }
   $orderPath = Get-OrderFilePath $Repo
   if (Test-Path -LiteralPath $orderPath) {
@@ -853,15 +892,14 @@ wt.ps1 —— 多 agent 并行工作树控制台
 $repo = Get-RepoRoot
 $baseArg = ''
 
-# 解析 -Base / -Scope / -Owner / -Branch / -Force
+# 解析 -Base / -Scope / -Owner / -Branch / -Force（同时支持 `-Scope=值` 与 `-Scope 值` 两种写法）
 $positional = @()
+$knownSwitches = @('-Base', '-Scope', '-Owner', '-Branch')
+$pending = $null
 foreach ($item in $Rest) {
   if ($item -is [string] -and $item.StartsWith('-')) {
     if ($item -ieq '-Force') { $Force = $true; continue }
     if ($item -ieq '-NoBaseWorktree') { $NoBaseWorktree = $true; continue }
-    if ($item -imatch '^-(Base|Scope|Owner|Branch)$') {
-      throw ("参数 {0} 需要写成 -Name=值 的形式（例如 -Base=master）" -f $item)
-    }
     if ($item -imatch '^-(Base|Scope|Owner|Branch)=(.+)$') {
       $key = $Matches[1].ToLower()
       $val = $Matches[2]
@@ -873,9 +911,29 @@ foreach ($item in $Rest) {
       }
       continue
     }
-    throw ("不认识的参数：{0}" -f $item)
-  } elseif ($null -ne $item) { $positional += [string]$item }
+    if ($knownSwitches -contains $item) { $pending = $item.Substring(1).ToLower(); continue }
+    throw ("不认识的参数：{0}（用 wt.ps1 help 看说明）" -f $item)
+  }
+  if ($pending) {
+    switch ($pending) {
+      'base' { $baseArg = [string]$item }
+      'scope' { $Scope = [string]$item }
+      'owner' { $Owner = [string]$item }
+      'branch' { $Branch = [string]$item }
+    }
+    $pending = $null
+    continue
+  }
+  if ($null -ne $item) {
+    $s = [string]$item
+    # 以 - 开头的多字符项一定是（写错的）开关，不能当成任务名收下去
+    if ($s.Length -gt 1 -and $s.StartsWith('-') -and $s -notmatch '^-\d') {
+      throw ("不认识的参数：{0}（用 wt.ps1 help 看说明）" -f $s)
+    }
+    $positional += $s
+  }
 }
+if ($pending) { throw ("参数 -{0} 后面缺值" -f $pending) }
 
 $base = Get-BaseBranch -Repo $repo -Explicit $baseArg
 
