@@ -646,7 +646,15 @@ def _tts_service_weights() -> dict | None:
     except OSError:
         return None
     t2s = vits = ""
+    section = ""
+    # 只认顶层 `custom:` 段 —— 这个文件里 v1/v2/v2Pro/v2ProPlus/v3/v4 各段都有同名字段，
+    # 不认段的话后一段会把前面的盖掉（261002 七次实测：v4 段盖成 s2Gv4.pth，于是永远认不出）
     for line in text.splitlines():
+        if not line[:1].isspace() and line.strip().endswith(":"):
+            section = line.split(":", 1)[0].strip()
+            continue
+        if section != "custom":
+            continue
         s = line.strip()
         if s.startswith("t2s_weights_path:"):
             t2s = s.split(":", 1)[1].strip()

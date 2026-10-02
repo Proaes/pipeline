@@ -37,13 +37,16 @@ export const IMG_EXTS = new Set(["jpg","jpeg","png","bmp","webp","tiff","tif","g
 export function currentTarget() { return document.querySelector("input[name=target]:checked").value; }
 export function isImageMode() { return currentTarget() === "image"; }
 export function okExts() { return TARGET_EXTS[currentTarget()] || new Set(); }
-/** 每行说明文字写进「该行自己的」第二列 span（index.html 里 id = targethint_<目标>） */
+/** 每行说明文字写进「该行自己的」第二列 span（index.html 里 id = targethint_<目标>）；
+    并给**当前选中**那一行加 `.active`（CSS 里转黑），让「哪一行的说明正在生效」一眼可见。 */
 export function updateTargetHint() {
+const cur = currentTarget();
 TARGET_IDS.forEach(t => {
   const el = $("targethint_" + t);
   if (!el) return;
   const note = (t !== "image" && (TARGET_EXTS[t] || new Set()).has("ppt")) ? PPT_NOTE : "";
   el.textContent = (TARGET_HINTS[t] || "") + note;
+  el.classList.toggle("active", t === cur);
 });
 }
 

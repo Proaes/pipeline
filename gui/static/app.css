@@ -43,6 +43,9 @@ h3.col-title { margin:0 0 8px; font-size:13px; font-weight:600; color:#4b5563; }
 .target-list .t-radio:hover { background:var(--hover-bg); }
 .target-list .t-radio:has(input:checked) { background:var(--sel-bg); border-color:var(--focus); }
 .target-hint { min-width:0; padding-top:6px; line-height:1.7; }
+/* 261002 七次：说明文字平时是灰的（.dim），**该行被选中时转黑** —— 由 options.js 的
+   updateTargetHint() 给当前目标那条加 .active（比 :has() 直白，也不吃选择器支持度） */
+.target-hint.active { color:#1f2937; font-weight:500; }
 .t-icon { width:20px; text-align:center; flex:none; }
 .opt-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 .opt-bottom { border-top:1px solid var(--line); margin-top:12px; padding-top:12px; }

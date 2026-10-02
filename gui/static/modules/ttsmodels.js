@@ -81,7 +81,15 @@ export function renderModels(preferEngine) {
   renderModelNote();
 }
 
-/** 模型名下面那行说明：模型自己的备注 + 引擎描述；服务在跑时补一句当前权重。 */
+/** 模型名下面那行说明：模型自己的备注 + 引擎描述；服务在跑时补一句当前权重。 *//** 正在跑的服务当前加载的那条模型（认不出就是 null）。给状态栏提示用。 */
+export function serviceModel() {
+  if (!modelsData || !modelsData.current) return null;
+  const id = modelsData.current.model;
+  if (!id) return null;
+  for (const e of modelsData.engines) for (const m of e.models) if (m.id === id) return m;
+  return null;
+}
+
 export function renderModelNote() {
   const el = $("tts_model_note");
   if (!el) return;
@@ -102,17 +110,32 @@ export function renderModelNote() {
   el.textContent = parts.join(" ｜ ");
 }
 
-/** 拉一次模型清单并铺开两个下拉。失败时把原因写进日志，不抛。 */
+/** 拉一次模型清单并铺开两个下拉。失败时把**服务端的原话**写进日志，不抛。
+    最容易踩的一种失败：GUI 后端进程还是旧的（没重启），`/api/tts/models` 回 404
+    —— 这时必须明确说「后端是旧进程，重启 gui/server.py」，不能只写「未知原因」。 */
 export async function loadTtsModels() {
   if (loading) return modelsData;
   loading = true;
+  const report = (msg) => {
+    const log = $("log");
+    if (log) logLine(log, "[TTS] 模型清单不可用：" + msg, "err");
+    const sel = $("tts_model");
+    if (sel) sel.innerHTML = '<option value="">（清单不可用）</option>';
+    const note = $("tts_model_note");
+    if (note) note.textContent = msg;
+  };
   try {
-    const d = await api("/api/tts/models");
+    const resp = await fetch("/api/tts/models", { cache: "no-store" });
+    if (resp.status === 404) {
+      report("后端没有这个接口（HTTP 404）—— 正在跑的 gui/server.py 是重启前的旧进程，"
+             + "重启它（并刷新本页）即可");
+      return null;
+    }
+    if (!resp.ok) { report(`后端返回 HTTP ${resp.status}`); return null; }
+    const d = await resp.json();
     if (!d || !d.ok) {
-      const log = $("log");
-      if (log) logLine(log, "[TTS] 模型清单不可用：" + ((d && d.message) || "未知原因"), "err");
-      const sel = $("tts_model");
-      if (sel) sel.innerHTML = '<option value="">（清单不可用）</option>';
+      report((d && (d.message || d.error))
+             || ("后端应答里没有 engines（原始应答：" + JSON.stringify(d).slice(0, 200) + "）"));
       return null;
     }
     modelsData = d;
@@ -125,8 +148,7 @@ export async function loadTtsModels() {
     }
     return d;
   } catch (e) {
-    const log = $("log");
-    if (log) logLine(log, "[TTS] /api/tts/models 查询失败：" + e, "err");
+    report(String((e && e.message) || e));
     return null;
   } finally {
     loading = false;

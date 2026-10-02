@@ -10,6 +10,7 @@
 
 import { $, logLine } from "./dom.js";
 import { api } from "./api.js";
+import { serviceModel, currentModel } from "./ttsmodels.js";
 
 const STATUS_POLL_MS = 2000;           // 契约建议 1.5–3 s
 const STATUS_TIMEOUT_MS = 120000;     // 上限 120 s，之后提示查日志
@@ -98,8 +99,18 @@ const stage = stt.stage || "down";
 const where = (stt.host && stt.port) ? `（${stt.host}:${stt.port}）` : "";
 if (stage === "ready") {
   // §2.6：probe==="port" 只证明端口在听，还没证明模型能服务 —— 弱语气，不许报「确定就绪」
-  if (readinessConfirmed(stt)) { setStatus(`● 就绪 · GPT-SoVITS 服务在跑${where}`, COLOR_READY); }
-  else { setStatus(`● 端口在听（未确认模型就绪）${where}`, COLOR_WAIT); }
+  if (readinessConfirmed(stt)) {
+    setStatus(`● 就绪 · GPT-SoVITS 服务在跑${where}`, COLOR_READY);
+    // 服务在跑但跑的不是你选的那套权重时明说 —— 否则界面上选着 A、合成出来的却是 B
+    const svc = serviceModel();
+    const sel = currentModel();
+    if (svc && sel && svc.id !== sel.id) {
+      setStatus(`● 就绪 · 服务在跑${where}，但它加载的是「${svc.label}」，不是所选的「${sel.label}」`
+                + "（点「⟳ 切到该模型」，或直接合成 —— 合成前会自动切）", COLOR_WAIT);
+    } else if (sel && sel.engine === "gptsovits" && !svc) {
+      setStatus(`● 就绪 · 服务在跑${where}（认不出当前权重，合成前会按所选「${sel.label}」切一次）`, COLOR_READY);
+    }
+  } else { setStatus(`● 端口在听（未确认模型就绪）${where}`, COLOR_WAIT); }
   return;
 }
 if (stage === "starting") { setStatus(`⏳ 正在加载模型…${where}（可以继续改下面的选项，不用等）`, COLOR_WAIT); return; }
