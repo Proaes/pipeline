@@ -859,7 +859,8 @@ def tts_status(start_result: dict | None = None) -> dict:
       / `error`(启动失败或进程已死)。
     - managed_by_gui：是否由本界面启动（对应现有 `_tts_serve_proc`），决定「停止」按钮可不可用。
     - start_result：`/api/tts/serve/start` 的原始应答。传进来时把它的原有字段并进结果，
-      并据此把「脚本缺失 / 子进程起不来」判成 error（否则那种失败与「没启动」无从区分）。
+      并据此把「脚本缺失 / 子进程起不来」判成 error（否则那种失败与「没启动」无从区分）；
+      且 `message` 以 start 自己的文案为准（契约 §2.5），通用文案只给 `GET /api/tts/status`。
     """
     global _tts_serve_proc
 
@@ -909,6 +910,10 @@ def tts_status(start_result: dict | None = None) -> dict:
         return status
     merged = dict(start_result)  # 原有字段（started/log/…）一个不丢
     merged.update(status)        # status 字段为准：alive 与 /api/tts/status 一致
+    # §2.5：start 应答的 message 以「这次点击发生了什么」为准，不被 status 的通用文案覆盖
+    own_message = start_result.get("message")
+    if isinstance(own_message, str) and own_message.strip():
+        merged["message"] = own_message
     return merged
 
 
