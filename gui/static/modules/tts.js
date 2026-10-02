@@ -37,7 +37,9 @@ st.style.color = color;
 }
 
 /** 降级路径：用 /api/tts/voices 里已有的 service.alive 拼一个同形状的 status。
-   已经拿到 voices 应答的调用方把它传进来，省一次请求。 */
+   已经拿到 voices 应答的调用方把它传进来，省一次请求。
+   注意：voices 只告诉我们「端口能连」—— 按 §2.6 这是**弱判据**，所以 probe 标 "port"、
+   model_ready 标 null，界面据此显示弱语气，不冒充「确定就绪」。 */
 async function statusFromVoices(voicesData) {
 const d = voicesData || await api("/api/tts/voices");
 const svc = (d && d.service) || {};
@@ -45,6 +47,8 @@ const alive = !!svc.alive;
 return {
   alive,
   ready: alive,
+  model_ready: null,
+  probe: alive ? "port" : "none",
   stage: alive ? "ready" : "down",
   message: (d && d.message) || "",
   host: svc.host || "",
@@ -77,12 +81,27 @@ if (ttsStatusOk !== false || now - lastStatusProbe > STATUS_RETRY_MS) {
 return await statusFromVoices(voicesData);
 }
 
+/** 就绪是不是「有实证」的（§2.6 第 2 条）。
+    `model_ready === true` 才算确认；`false` 明确不算；
+    字段缺失/为 null 时只认 `probe === "health"` —— 老后端与降级路径都拿不到 probe，
+    于是按弱判据处理，绝不把「未知」显示成「确定就绪」。 */
+function readinessConfirmed(stt) {
+if (stt.model_ready === true) return true;
+if (stt.model_ready === false) return false;
+return stt.probe === "health";
+}
+
 /** 按 stage 四值分支画状态栏；down 时再分「当前引擎要不要服务」。 */
 function renderStage(stt) {
 lastStatus = stt;
 const stage = stt.stage || "down";
 const where = (stt.host && stt.port) ? `（${stt.host}:${stt.port}）` : "";
-if (stage === "ready") { setStatus(`● 就绪 · GPT-SoVITS 服务在跑${where}`, COLOR_READY); return; }
+if (stage === "ready") {
+  // §2.6：probe==="port" 只证明端口在听，还没证明模型能服务 —— 弱语气，不许报「确定就绪」
+  if (readinessConfirmed(stt)) { setStatus(`● 就绪 · GPT-SoVITS 服务在跑${where}`, COLOR_READY); }
+  else { setStatus(`● 端口在听（未确认模型就绪）${where}`, COLOR_WAIT); }
+  return;
+}
 if (stage === "starting") { setStatus(`⏳ 正在加载模型…${where}（可以继续改下面的选项，不用等）`, COLOR_WAIT); return; }
 if (stage === "error") { setStatus("⚠ " + (stt.message || "GPT-SoVITS 服务启动失败"), COLOR_ERR); return; }
 // stage === "down"
@@ -140,7 +159,8 @@ try {
   // 状态栏优先用 /api/tts/status（契约端点），拿不到就用上面的 service 字段兜底
   let stt = null;
   try { stt = await fetchTtsStatus(d); } catch (e) { stt = null; }
-  if (!stt) stt = { alive: !!svc.alive, ready: !!svc.alive, stage: svc.alive ? "ready" : "down", message: d.message || "", host: svc.host || "", port: svc.port || 0 };
+  if (!stt) stt = { alive: !!svc.alive, ready: !!svc.alive, model_ready: null, probe: svc.alive ? "port" : "none",
+                    stage: svc.alive ? "ready" : "down", message: d.message || "", host: svc.host || "", port: svc.port || 0 };
   renderStage(stt);
   $("ttsserve").disabled = !!stt.alive;
   return d;

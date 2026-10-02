@@ -35,7 +35,8 @@
         ① 树默认折叠、折叠/展开真生效 ·
         ② <code>sec-browse</code>+<code>sec-selected</code> 挪到最下一层 ·
         ③ <code>sec-options</code> 改两列（左目标格式带图标 / 右引擎与模型）·
-        ④ <code>sec-log</code> 加「复制日志 / 下载日志」</span>
+        ④ <code>sec-log</code> 加「复制日志 / 下载日志」·
+        ⑤ 就绪文案按契约分强弱判据（新增 <code>state-tts-port-only</code>，端口在听不再显示成「确定就绪」）</span>
     </div>
   </header>
 
@@ -391,18 +392,22 @@
       <span class="mk-anno"><b>state-text-dim</b> 浅灰小字＝说明/占位</span>
     </div>
 
-    <p class="mk-cardsub">模型预热的 4 种状态（点「启动服务」后会依次看到的样子）</p>
+    <p class="mk-cardsub">模型预热 + 就绪判据（点「启动服务」后会依次看到的样子）</p>
     <div class="mk-row">
       <span class="status st-down" data-el="state-tts-down" data-demo="1">● 就绪 · GPT-SoVITS 服务未启动（点「▶ 启动 GPT-SoVITS 服务」，或把引擎切到 GENIE）</span>
       <span class="mk-anno"><b>state-tts-down</b> down＝服务没起</span>
     </div>
     <div class="mk-row">
       <span class="status st-starting" data-el="state-tts-starting" data-demo="1">⏳ 正在加载模型…（127.0.0.1:9880）（可以继续改下面的选项，不用等）</span>
-      <span class="mk-anno"><b>state-tts-starting</b> starting＝加载中，此时<b>其他选项都不锁</b></span>
+      <span class="mk-anno"><b>state-tts-starting</b> starting＝加载中（端口在听但健康探测没过也是这一档），此时<b>其他选项都不锁</b></span>
     </div>
     <div class="mk-row">
       <span class="status st-ready" data-el="state-tts-ready" data-demo="1">● 就绪 · GPT-SoVITS 服务在跑（127.0.0.1:9880）</span>
-      <span class="mk-anno"><b>state-tts-ready</b> ready＝可以转换了</span>
+      <span class="mk-anno"><b>state-tts-ready</b> 只在这一种情况下出现：<b>probe="health" / model_ready=true</b>（健康探测确认模型能服务）</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-down" data-el="state-tts-port-only" data-demo="1">● 端口在听（未确认模型就绪）（127.0.0.1:9880）</span>
+      <span class="mk-anno"><b>state-tts-port-only</b> <b>弱判据</b>：只证明端口在听（probe="port"，或用的是老后端/降级路径拿不到 probe）—— 语气故意留弱，不冒充「确定就绪」</span>
     </div>
     <div class="mk-row">
       <span class="status st-error" data-el="state-tts-error" data-demo="1">⚠ 模型加载失败：显存不足</span>
