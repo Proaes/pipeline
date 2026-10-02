@@ -19,17 +19,20 @@
     <div class="opt-cols">
       <div class="opt-col">
         <h3 class="col-title">目标格式</h3>
-        <div class="target-list">
-          <label><input type="radio" name="target" value="pdf" checked> <span class="t-icon">📕</span>PDF</label>
-          <label><input type="radio" name="target" value="tex"> <span class="t-icon">📐</span>TeX</label>
-          <label><input type="radio" name="target" value="json"> <span class="t-icon">📋</span>JSON</label>
-          <label><input type="radio" name="target" value="md"> <span class="t-icon">📝</span>MD</label>
-          <label><input type="radio" name="target" value="docx"> <span class="t-icon">📘</span>DOCX</label>
-          <label><input type="radio" name="target" value="lint"> <span class="t-icon">🔍</span>lint 检查</label>
-          <label><input type="radio" name="target" value="image"> <span class="t-icon">🖼️</span>图片→MD (OCR)</label>
-          <label><input type="radio" name="target" value="audio"> <span class="t-icon">🎵</span>文本→语音 (TTS)</label>
+        <!-- 8 个选项一列竖排，说明文字摆在它右侧 -->
+        <div class="target-wrap">
+          <div class="target-list">
+            <label><input type="radio" name="target" value="pdf" checked> <span class="t-icon">📕</span>PDF</label>
+            <label><input type="radio" name="target" value="tex"> <span class="t-icon">📐</span>TeX</label>
+            <label><input type="radio" name="target" value="json"> <span class="t-icon">📋</span>JSON</label>
+            <label><input type="radio" name="target" value="md"> <span class="t-icon">📝</span>MD</label>
+            <label><input type="radio" name="target" value="docx"> <span class="t-icon">📘</span>DOCX</label>
+            <label><input type="radio" name="target" value="lint"> <span class="t-icon">🔍</span>lint 检查</label>
+            <label><input type="radio" name="target" value="image"> <span class="t-icon">🖼️</span>图片→MD (OCR)</label>
+            <label><input type="radio" name="target" value="audio"> <span class="t-icon">🎵</span>文本→语音 (TTS)</label>
+          </div>
+          <div class="target-hint"><span class="dim" id="targethint"></span></div>
         </div>
-        <div class="opt-row"><span class="dim" id="targethint"></span></div>
       </div>
 
       <div class="opt-col">

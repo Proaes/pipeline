@@ -71,24 +71,27 @@
       <!-- 左列：目标格式 -->
       <div class="mk-opt-col">
         <h3 class="mk-col-title">目标格式</h3>
-        <div class="mk-target-list">
-          <label><input type="radio" name="mk-target" data-el="radio-target-pdf" data-prod="target=pdf" checked> <span class="mk-t-icon">📕</span>PDF</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-tex" data-prod="target=tex"> <span class="mk-t-icon">📐</span>TeX</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-json" data-prod="target=json"> <span class="mk-t-icon">📋</span>JSON</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-md" data-prod="target=md"> <span class="mk-t-icon">📝</span>MD</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-docx" data-prod="target=docx"> <span class="mk-t-icon">📘</span>DOCX</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-lint" data-prod="target=lint"> <span class="mk-t-icon">🔍</span>lint 检查</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-image" data-prod="target=image"> <span class="mk-t-icon">🖼️</span>图片→MD (OCR)</label>
-          <label><input type="radio" name="mk-target" data-el="radio-target-audio" data-prod="target=audio"> <span class="mk-t-icon">🎵</span>文本→语音 (TTS)</label>
+        <!-- 8 个选项一列竖排，说明文字摆在它右侧 -->
+        <div class="mk-target-wrap">
+          <div class="mk-target-list">
+            <label><input type="radio" name="mk-target" data-el="radio-target-pdf" data-prod="target=pdf" checked> <span class="mk-t-icon">📕</span>PDF</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-tex" data-prod="target=tex"> <span class="mk-t-icon">📐</span>TeX</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-json" data-prod="target=json"> <span class="mk-t-icon">📋</span>JSON</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-md" data-prod="target=md"> <span class="mk-t-icon">📝</span>MD</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-docx" data-prod="target=docx"> <span class="mk-t-icon">📘</span>DOCX</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-lint" data-prod="target=lint"> <span class="mk-t-icon">🔍</span>lint 检查</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-image" data-prod="target=image"> <span class="mk-t-icon">🖼️</span>图片→MD (OCR)</label>
+            <label><input type="radio" name="mk-target" data-el="radio-target-audio" data-prod="target=audio"> <span class="mk-t-icon">🎵</span>文本→语音 (TTS)</label>
+          </div>
+          <div class="mk-target-hint">
+            <span class="status st-dim" data-el="text-target-hint" data-prod="targethint">ℹ md/tex/ppt/pptx → PDF（latexmk，需 TeX Live）；.ppt 会先转 .pptx（需本机 PowerPoint 或 WPS）</span>
+          </div>
         </div>
         <div class="mk-row">
-          <span class="status st-dim" data-el="text-target-hint" data-prod="targethint">ℹ md/tex/ppt/pptx → PDF（latexmk，需 TeX Live）</span>
+          <span class="mk-anno"><b>radio-target-*</b> 8 个单选（默认 PDF），<b>一列竖排</b>；<b>mk-t-icon</b> 就是夹在单选按钮和格式名中间的那个文件图标，方便速找</span>
         </div>
         <div class="mk-row">
-          <span class="mk-anno"><b>radio-target-*</b> 8 个单选（默认 PDF）；<b>mk-t-icon</b> 就是夹在单选按钮和格式名中间的那个文件图标，方便速找</span>
-        </div>
-        <div class="mk-row">
-          <span class="mk-anno"><b>text-target-hint</b> 当前目标格式的说明文字，跟着单选取值变</span>
+          <span class="mk-anno"><b>text-target-hint</b> 当前目标格式的说明文字，跟着单选取值变；<b>现在摆在目标格式右侧</b></span>
         </div>
       </div>
 
