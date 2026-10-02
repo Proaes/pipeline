@@ -845,18 +845,73 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
 
 
-# ── TTS 服务状态（冻结契约见 _shared/INTERFACES.md §2.2） ─────────────────
+# ── TTS 服务状态（冻结契约见 _shared/INTERFACES.md §2.2 + §2.6） ──────────
 TTS_STAGES = ("down", "starting", "ready", "error")  # stage 只许这四个值
+TTS_PROBES = ("port", "health", "none")              # probe 只许这三个值
+
+# 就绪判据升级（§2.6）：光「端口能连」不算就绪 —— 半启动的服务也在听端口。
+# 本仓库的 api_v2.py 是 FastAPI，`/openapi.json` 必在；它能答 2xx 就说明 HTTP 应用已完整装配。
+TTS_HEALTH_PATH = "/openapi.json"
+TTS_HEALTH_TIMEOUT = 1.0  # 秒：探测必须短，别把轮询拖慢
+TTS_HEALTH_TTL = 1.5      # 秒：前端 1.5–3 s 轮一次，短缓存免得把服务打爆
+_tts_health_lock = threading.Lock()
+_tts_health_cache: dict = {"key": None, "at": 0.0, "verdict": None}
+
+
+def _tts_health_verdict(host: str, port: int) -> bool | None:
+    """对 TTS 服务做一次轻量健康探测：True=已能服务，False=没就绪，None=没有可探的健康端点。
+
+    - 2xx → True：HTTP 应用已在答。对本仓库的启动方式（api_v2.py 先 `TTS(...)` 载权重、
+      再 `uvicorn.run`）来说，能答 2xx 就意味着权重已载入；若有人用 `uvicorn api_v2:APP`
+      那种「先绑端口、后导入模块」的起法，这里也能挡住「端口在听、模型还没好」。
+    - 404/405/501 → None：这个服务没有健康端点，退回「端口可连」的弱判据（§2.6）。
+    - 其它状态码 / 连不上 / 超时 / 响应不是 HTTP → False：明确判「没就绪」。
+    任何异常都在这里吃掉：探测失败不该让 /api/tts/status 变成 500。
+    """
+    import http.client  # 只有 TTS 这一路用得到，就近导入（同 tts_service_alive）
+
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=TTS_HEALTH_TIMEOUT)
+        try:
+            conn.request("GET", TTS_HEALTH_PATH, headers={"Connection": "close"})
+            resp = conn.getresponse()
+            resp.read(4096)  # 小响应读完就关，别把连接吊着
+            status = resp.status
+        finally:
+            conn.close()
+    except Exception:
+        return False
+    if 200 <= status < 300:
+        return True
+    if status in (404, 405, 501):
+        return None
+    return False
+
+
+def _tts_health_cached(host: str, port: int) -> bool | None:
+    """带短缓存地取健康结论；TTL 内直接复用，前端 1.5 s 轮询不会把探测打爆。"""
+    key = (host, port)
+    with _tts_health_lock:  # 持锁探测：顺带挡住并发轮询的重复请求
+        if (_tts_health_cache["key"] == key
+                and time.time() - _tts_health_cache["at"] < TTS_HEALTH_TTL):
+            return _tts_health_cache["verdict"]
+        verdict = _tts_health_verdict(host, port)
+        _tts_health_cache.update({"key": key, "at": time.time(), "verdict": verdict})
+        return verdict
 
 
 def tts_status(start_result: dict | None = None) -> dict:
-    """TTS 服务的状态对象；前端按 stage 分四支显示，按 alive 决定能否合成。
+    """TTS 服务的状态对象；前端按 stage 分四支显示，按 ready 决定能否合成。
 
     - alive：端口能连上（沿用 `tts_service_alive()` 的判据，与 to_audio.py 一致，不改语义）。
-    - ready：能立刻接受合成请求。当前判据 = alive —— 服务一旦在监听就说明模型已载入；
-      以后若要探模型可以再收紧，但这个字段的语义不变。
-    - stage：`down`(没起) / `starting`(本界面刚拉起、还在加载) / `ready`(可用)
-      / `error`(启动失败或进程已死)。
+    - model_ready：`true`=健康探测确认服务能应答；`false`=端口在听但健康探测没过
+      （半启动 / 还在载模型）；`null`=探不到（服务没起，或这个服务没有可探的健康端点）。
+    - probe：就绪判据的来源 —— `health`(做过健康探测) / `port`(只有端口可连这条弱证据)
+      / `none`(连端口都没连上)。
+    - ready：能立刻接受合成请求。`model_ready===true` → true；`false` → false；
+      `null` → 回退 `alive`（弱判据，前端据 `probe` 判断可信度）。
+    - stage：`down`(没起) / `starting`(本界面刚拉起、或端口在听但健康探测没过)
+      / `ready`(可用) / `error`(启动失败或进程已死)。
     - managed_by_gui：是否由本界面启动（对应现有 `_tts_serve_proc`），决定「停止」按钮可不可用。
     - start_result：`/api/tts/serve/start` 的原始应答。传进来时把它的原有字段并进结果，
       并据此把「脚本缺失 / 子进程起不来」判成 error（否则那种失败与「没启动」无从区分）；
@@ -865,6 +920,13 @@ def tts_status(start_result: dict | None = None) -> dict:
     global _tts_serve_proc
 
     alive = tts_service_alive()
+    if alive:
+        # §2.6：端口在听只算弱证据，再补一次轻量健康探测
+        model_ready = _tts_health_cached(TTS_HOST, TTS_PORT)
+        probe = "port" if model_ready is None else "health"
+        ready = bool(model_ready) if model_ready is not None else alive
+    else:
+        model_ready, probe, ready = None, "none", False
     proc = _tts_serve_proc
     exited = proc is not None and proc.poll() is not None
     managed = proc is not None and not exited  # 只有它还活着，「停止」才管得了
@@ -875,9 +937,14 @@ def tts_status(start_result: dict | None = None) -> dict:
         pid = owners[0] if owners else None
     log_path = TTS_SERVE_SCRIPT.parent / "p10_serve_si.log"
 
-    if alive:
+    if alive and ready:
         stage = "ready"
         message = f"服务在跑（{TTS_HOST}:{TTS_PORT}），可以合成"
+    elif alive:
+        # 端口在听但健康探测没过：当作「还在起」，别报就绪骗用户去点合成
+        stage = "starting"
+        message = (f"服务在监听 {TTS_HOST}:{TTS_PORT}，但健康探测（{TTS_HEALTH_PATH}）还没过；"
+                   f"多半是模型还在载入；日志: {log_path}")
     elif managed:
         stage = "starting"
         message = (f"正在启动（PID {proc.pid}），模型加载要几十秒；"
@@ -896,9 +963,12 @@ def tts_status(start_result: dict | None = None) -> dict:
                    f"点界面上的「启动 GPT-SoVITS 服务」，或运行: {TTS_SERVE_HINT}")
 
     assert stage in TTS_STAGES, stage  # 冻结契约：只允许这四个值
+    assert probe in TTS_PROBES, probe  # 冻结契约：probe 只允许这三个值
     status = {
         "alive": alive,
-        "ready": alive,
+        "ready": ready,                # 语义见 §2.6：优先 model_ready，探不到才回退 alive
+        "model_ready": model_ready,    # 新增（§2.6）：bool | null
+        "probe": probe,                # 新增（§2.6）："port" | "health" | "none"
         "stage": stage,          # 恒为 TTS_STAGES 之一
         "message": message,
         "host": TTS_HOST,
