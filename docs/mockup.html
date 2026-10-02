@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pipeline 界面 · 元素示例页（静态 · 无功能）</title>
+<!-- 纯静态：零脚本、零 CDN、零网络请求，双击本文件即可在浏览器打开 -->
+<link rel="stylesheet" href="./mockup.css">
+</head>
+<body>
+<div class="mk-page">
+
+  <!-- ═══════════ 页头：怎么给我下指令 ═══════════ -->
+  <header class="mk-top" data-el="sec-howto" data-section="howto" data-demo-section="howto">
+    <h1>🧩 pipeline 界面 · 元素示例页</h1>
+    <p class="mk-sub">
+      这是<b>纯静态示例</b>：不连后端、没有任何真实数据、所有框都是空的、按钮点了不会有反应。<br>
+      它只回答一个问题 —— <b>「这个界面里有哪些元素、各自叫什么名字」</b>，方便你按名字下修改指令。
+    </p>
+    <ol class="mk-howto">
+      <li>看到想改的地方，记下它旁边的<b>蓝底名字</b>（就是该元素的 <code>data-el</code>），例如 <code>btn-convert</code>、<code>sel-list</code>、<code>sec-options</code>。</li>
+      <li>用一句话说清「改成什么」：「<i>把 sel-list 改成两列</i>」「<i>btn-convert 换成绿色、挪到最右边</i>」「<i>sec-options 里目标格式那一行太长，折成两行</i>」。</li>
+      <li>一次说几条都行，不用管怎么实现、不用管顺序；措辞随便，我看得懂就行。</li>
+      <li>也可以直接在页面最下面的<b>「用户批注区」</b>里写，写完把内容发我。</li>
+      <li>想整体换风格（配色 / 圆角 / 间距密度 / 深色模式），直接说「整体……」就行，不必指名元素。</li>
+    </ol>
+    <div class="mk-legend">
+      <span><b>虚线空框</b>＝真界面上这里放动态内容（文件列表 / 日志…），示例页里留空</span>
+      <span><b>橙色框＋标签</b>＝该元素只在某个目标格式下才出现（示例页里全摆出来给你看）</span>
+      <span><b>蓝底名字</b>＝该元素的 <code>data-el</code></span>
+      <span><b>灰字</b>＝这句中文说明</span>
+    </div>
+  </header>
+
+  <!-- ═══════════ 0 页头（生产界面顶部那条） ═══════════ -->
+  <section class="mk-card" data-el="sec-app-header" data-section="app-header" data-demo-section="app-header">
+    <div class="mk-cardhead">
+      <h2>🧷 页头（现在界面最上面那条）</h2>
+      <span class="mk-tag">data-el="sec-app-header"</span>
+      <span class="mk-anno">标题 + 与后端的连通状态</span>
+    </div>
+    <div class="mk-prodhead">
+      <span class="mk-prodtitle" data-el="text-app-title" data-prod="title">📄 pipeline 转换面板</span>
+      <span class="status st-ready" data-el="status-health" data-prod="health">● 服务正常</span>
+    </div>
+    <div class="mk-row">
+      <span class="mk-anno"><b>text-app-title</b> 界面标题（代码里是 h1）</span>
+    </div>
+    <div class="mk-row">
+      <span class="mk-anno"><b>status-health</b> 后端连通性：绿「● 服务正常」/ 灰「连接中…」/ 红「● 无法连接」</span>
+    </div>
+  </section>
+
+  <!-- ═══════════ 1 / 5 文件浏览 ═══════════ -->
+  <section class="mk-card" data-el="sec-browse" data-section="browse" data-prod-section="browse">
+    <div class="mk-cardhead">
+      <h2>📁 文件浏览</h2>
+      <span class="mk-tag">data-el="sec-browse"</span>
+      <span class="mk-anno">左边这一大块：选文件用的目录树</span>
+    </div>
+    <p class="mk-cardsub">路径栏</p>
+    <div class="mk-row">
+      <button data-el="btn-up" data-prod="up">⬆ 上级</button>
+      <span class="mk-anno"><b>btn-up</b> 回到上级目录；已经在根目录时是禁用态</span>
+    </div>
+    <div class="mk-condbox">
+      <div class="mk-row">
+        <button data-el="btn-pickdir" data-prod="pickdir">📥 选当前目录</button>
+        <span class="mk-anno"><b>btn-pickdir</b> 把当前目录整个加进已选（只在「图片→MD」模式下出现）</span>
+        <span class="mk-cond">仅 image 模式</span>
+      </div>
+    </div>
+    <div class="mk-row">
+      <input type="text" id="mk-curdir" data-el="input-curdir" data-prod="curdir" readonly value="（当前目录路径，只读——真界面会填真实路径）" style="width:420px">
+      <span class="mk-anno"><b>input-curdir</b> 只读框，显示当前所在目录</span>
+    </div>
+    <div class="mk-row">
+      <input type="text" id="mk-search" data-el="input-search" data-prod="search" placeholder="🔍 搜索文件名（实时过滤）" style="width:280px">
+      <span class="mk-anno"><b>input-search</b> 文件名搜索框，边打边过滤树</span>
+    </div>
+    <p class="mk-cardsub">工具栏（作用于整棵树）</p>
+    <div class="mk-row">
+      <button data-el="btn-select-all" data-prod="btn-selall">☑ 全选</button>
+      <span class="mk-anno"><b>btn-select-all</b> 把树里所有能转换的文件都选上</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="btn-invert" data-prod="btn-invsel">☐ 反选</button>
+      <span class="mk-anno"><b>btn-invert</b> 选中的取消、没选的选上</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="btn-expand-all" data-prod="btn-expand">▸ 全部展开</button>
+      <span class="mk-anno"><b>btn-expand-all</b> 展开所有文件夹</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="btn-collapse-all" data-prod="btn-collapse">▾ 全部折叠</button>
+      <span class="mk-anno"><b>btn-collapse-all</b> 折叠所有文件夹</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-idle" data-el="text-browse-count" data-prod="browsecnt">0/0 文件已选</span>
+      <span class="mk-anno"><b>text-browse-count</b> 树里「已选 / 可转换总数」的计数文字</span>
+    </div>
+    <div class="mk-ph mk-ph-tree" data-el="tree-list" data-prod="browse">
+      <span class="mk-ph-ico">🗂️</span>
+      <span>（空——放文件列表）</span>
+      <span class="mk-anno"><b>tree-list</b> 目录树本体：每行有复选框 / 展开箭头 / 图标 / 文件名 / 大小，可键盘上下选择</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-dim" data-el="text-browse-err" data-prod="browserr">（这里显示读目录失败时的错误文字）</span>
+      <span class="mk-anno"><b>text-browse-err</b> 目录读取失败时的红/灰提示行</span>
+    </div>
+  </section>
+
+  <!-- ═══════════ 2 / 5 已选文件 ═══════════ -->
+  <section class="mk-card" data-el="sec-selected" data-section="selected" data-prod-section="selected">
+    <div class="mk-cardhead">
+      <h2>📋 已选文件 <span class="dim" data-el="text-sel-count" data-prod="selcount">（0 个）</span></h2>
+      <span class="mk-tag">data-el="sec-selected"</span>
+      <span class="mk-anno">右边这块：已经挑出来的文件，按目录分组</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="btn-clear" data-prod="clear">清空</button>
+      <span class="mk-anno"><b>btn-clear</b> 一次清空所有已选；真界面里它被顶到标题行最右（<code>margin-left:auto</code>）</span>
+    </div>
+    <div class="mk-ph mk-ph-sel" data-el="sel-list" data-prod="selected">
+      <span class="mk-ph-ico">📋</span>
+      <span>（空——放已选文件，按目录分组，每组有「✕ 移除整组」，每条有「✕」）</span>
+      <span class="mk-anno"><b>sel-list</b> 已选文件列表本体</span>
+    </div>
+    <details style="margin-top:10px">
+      <summary class="mk-anno" style="cursor:pointer">或手动粘贴文件路径（每行一个）— <b>group-manual-paths</b></summary>
+      <div class="mk-row" style="display:block">
+        <textarea id="mk-paths" data-el="input-paths" data-prod="paths" placeholder="E:\notes\note.md（示例页里随便写，不会生效）"></textarea>
+        <span class="mk-anno"><b>input-paths</b> 手动粘贴路径的多行输入框（默认折叠在这个三角里）</span>
+      </div>
+      <div class="mk-row">
+        <button data-el="btn-add-paths" data-prod="addpaths">添加路径</button>
+        <span class="mk-anno"><b>btn-add-paths</b> 把上面粘贴的路径加进已选</span>
+      </div>
+    </details>
+  </section>
+
+  <!-- ═══════════ 3 / 5 转换选项 ═══════════ -->
+  <section class="mk-card" data-el="sec-options" data-section="options" data-prod-section="options">
+    <div class="mk-cardhead">
+      <h2>⚙️ 转换选项</h2>
+      <span class="mk-tag">data-el="sec-options"</span>
+      <span class="mk-anno">横跨整宽的一块：目标格式 + 各种转换设置</span>
+    </div>
+
+    <p class="mk-cardsub">目标格式（单选，8 选 1）</p>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-pdf" data-prod="target=pdf" checked> PDF</label>
+      <span class="mk-anno"><b>radio-target-pdf</b> md/tex/ppt → PDF（默认选中）</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-tex" data-prod="target=tex"> TeX</label>
+      <span class="mk-anno"><b>radio-target-tex</b> md/ppt → LaTeX 源文件</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-json" data-prod="target=json"> JSON</label>
+      <span class="mk-anno"><b>radio-target-json</b> md/ppt → 结构化 JSON</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-md" data-prod="target=md"> MD</label>
+      <span class="mk-anno"><b>radio-target-md</b> ppt → Markdown</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-docx" data-prod="target=docx"> DOCX</label>
+      <span class="mk-anno"><b>radio-target-docx</b> ppt → Word</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-lint" data-prod="target=lint"> lint 检查</label>
+      <span class="mk-anno"><b>radio-target-lint</b> 只检查 md 写法，不改文件</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-image" data-prod="target=image"> 图片→MD (OCR)</label>
+      <span class="mk-anno"><b>radio-target-image</b> 选「含图片的目录」批量 OCR（选中后下面浮出 OCR 那行）</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="radio" name="mk-target" data-el="radio-target-audio" data-prod="target=audio"> 文本→语音 (TTS)</label>
+      <span class="mk-anno"><b>radio-target-audio</b> md/txt → 语音（选中后下面浮出 TTS 那两行）</span>
+    </div>
+
+    <div class="mk-row">
+      <label for="mk-engine">　引擎：</label>
+      <select id="mk-engine" data-el="select-tex-engine" data-prod="engine">
+        <option>xelatex（推荐）</option>
+        <option>pdflatex</option>
+        <option>lualatex</option>
+      </select>
+      <span class="mk-anno"><b>select-tex-engine</b> PDF 编译引擎，3 个选项</span>
+    </div>
+    <div class="mk-row">
+      <label for="mk-outdir">　输出目录：</label>
+      <input type="text" id="mk-outdir" data-el="input-outdir" data-prod="outdir" placeholder="留空 = 源在 N_xxx/ 槽位则同级 (N+1)_目标/，否则与源同目录" style="width:420px">
+      <span class="mk-anno"><b>input-outdir</b> 输出到哪；留空按默认规则</span>
+    </div>
+
+    <div class="mk-condbox">
+      <p class="mk-cardsub" style="margin-top:8px">OCR 选项行 <span class="mk-cond">仅 image 模式</span></p>
+      <div class="mk-row">
+        <label><input type="checkbox" data-el="check-ocr-recursive" data-prod="ocr_recursive"> 递归子目录</label>
+        <span class="mk-anno"><b>check-ocr-recursive</b> 连子目录里的图片一起处理</span>
+      </div>
+      <div class="mk-row">
+        <button data-el="btn-ocr-start" data-prod="ocrstart">🚀 启动 Ollama</button>
+        <span class="mk-anno"><b>btn-ocr-start</b> 拉起本地 OCR 服务</span>
+      </div>
+      <div class="mk-row">
+        <button data-el="btn-ocr-pull" data-prod="ocrpull">⬇ 拉取模型</button>
+        <span class="mk-anno"><b>btn-ocr-pull</b> 下载 OCR 模型（可能要几分钟）</span>
+      </div>
+      <div class="mk-row">
+        <span class="status st-dim" data-el="status-ocr" data-prod="ocrstatus">🔍 （检查 Ollama…）</span>
+        <span class="mk-anno"><b>status-ocr</b> OCR 环境状态文字（绿=就绪 / 红=缺东西）</span>
+      </div>
+    </div>
+
+    <div class="mk-condbox">
+      <p class="mk-cardsub" style="margin-top:8px">TTS 选项行 <span class="mk-cond">仅 audio 模式</span></p>
+      <div class="mk-row">
+        <label for="mk-tts-voice">音色：</label>
+        <select id="mk-tts-voice" data-el="select-voice" data-prod="tts_voice">
+          <option>（默认）</option>
+        </select>
+        <span class="mk-anno"><b>select-voice</b> 音色下拉（真界面里会列出预设角色和我的音色）</span>
+      </div>
+      <div class="mk-row">
+        <label for="mk-tts-engine">　引擎：</label>
+        <select id="mk-tts-engine" data-el="select-tts-engine" data-prod="tts_engine">
+          <option>GPT-SoVITS 微调（音质最好，需先起服务）</option>
+          <option>GENIE（纯 CPU，零显存，无需服务）</option>
+        </select>
+        <span class="mk-anno"><b>select-tts-engine</b> 语音引擎；只有第一项需要先启动服务</span>
+      </div>
+      <div class="mk-row">
+        <label for="mk-tts-format">　格式：</label>
+        <select id="mk-tts-format" data-el="select-audio-format" data-prod="tts_format">
+          <option>mp3</option>
+          <option>wav</option>
+        </select>
+        <span class="mk-anno"><b>select-audio-format</b> 音频格式</span>
+      </div>
+      <div class="mk-row">
+        <label for="mk-tail-pad">　收尾静音：</label>
+        <input type="number" id="mk-tail-pad" data-el="input-tail-pad" data-prod="tts_tail_pad" step="0.05" min="0" value="0.55" style="width:72px">
+        <span class="mk-anno">秒　<b>input-tail-pad</b> 每句结尾多留的静音长度</span>
+      </div>
+      <div class="mk-row">
+        <label><input type="checkbox" data-el="check-srt" data-prod="tts_srt"> 同时输出 .srt 时间轴</label>
+        <span class="mk-anno"><b>check-srt</b> 顺带生成字幕文件</span>
+      </div>
+      <div class="mk-row">
+        <label><input type="checkbox" data-el="check-draw" data-prod="tts_draw"> 抽卡模式</label>
+        <span class="mk-anno"><b>check-draw</b> 每次转换都写新文件（<i>名_d01、_d02…</i>），不覆盖不跳过</span>
+      </div>
+      <div class="mk-row">
+        <button data-el="btn-tts-serve" data-prod="ttsserve">▶ 启动 GPT-SoVITS 服务</button>
+        <span class="mk-anno"><b>btn-tts-serve</b> 提前把模型拉起来（加载要几十秒，期间可以继续改选项）</span>
+      </div>
+      <div class="mk-row">
+        <button data-el="btn-tts-stop" data-prod="ttsstop">■ 停止服务</button>
+        <span class="mk-anno"><b>btn-tts-stop</b> 停掉本界面启动的服务</span>
+      </div>
+      <div class="mk-row">
+        <span class="status st-down" data-el="status-tts" data-prod="ttsstatus">● 就绪 · GPT-SoVITS 服务未启动</span>
+        <span class="mk-anno"><b>status-tts</b> 服务状态文字（四种文案见下面「状态品种」）</span>
+      </div>
+    </div>
+
+    <div class="mk-condbox">
+      <div class="mk-row">
+        <label for="mk-tts-count">版本数： <input type="number" id="mk-tts-count" data-el="input-version-count" data-prod="tts_count" min="1" max="9" value="1" style="width:52px"></label>
+        <span class="mk-anno"><b>input-version-count</b> 一次生成几个版本（&gt;1 自动编号，方便挑一发）</span>
+        <span class="mk-cond">仅 audio 模式</span>
+      </div>
+    </div>
+
+    <p class="mk-cardsub">转换操作行</p>
+    <div class="mk-row">
+      <label><input type="checkbox" data-el="check-open-pdf" data-prod="openpdf"> 转换后打开 PDF</label>
+      <span class="mk-anno"><b>check-open-pdf</b> 转完自动用系统阅读器打开</span>
+    </div>
+    <div class="mk-row">
+      <label><input type="checkbox" data-el="check-force" data-prod="force"> 覆盖已存在产物</label>
+      <span class="mk-anno"><b>check-force</b> 关掉时，产物已存在就跳过</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-dim" data-el="text-target-hint" data-prod="targethint">ℹ md/tex/ppt/pptx → PDF（latexmk，需 TeX Live）</span>
+      <span class="mk-anno"><b>text-target-hint</b> 当前目标格式的说明文字，跟着单选取值变</span>
+    </div>
+    <div class="mk-row">
+      <button class="primary" data-el="btn-convert" data-prod="convert">开始转换</button>
+      <span class="mk-anno"><b>btn-convert</b> 主操作按钮（蓝色，最显眼）</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-dim" data-el="text-conv-state" data-prod="convstate">（转换中… / 完成）</span>
+      <span class="mk-anno"><b>text-conv-state</b> 「转换中…／完成」小字</span>
+    </div>
+  </section>
+
+  <!-- ═══════════ 4 / 5 转换日志 ═══════════ -->
+  <section class="mk-card" data-el="sec-log" data-section="log" data-prod-section="log">
+    <div class="mk-cardhead">
+      <h2>📜 转换日志</h2>
+      <span class="mk-tag">data-el="sec-log"</span>
+      <span class="mk-anno">横跨整宽：转换结果逐条往下滚</span>
+    </div>
+    <div class="mk-ph mk-ph-log" data-el="log-box" data-prod="log">
+      <span class="mk-ph-ico">📜</span>
+      <span>（空——放转换日志）</span>
+      <span class="mk-anno"><b>log-box</b> 日志区：每行是「✓ 文件名 / ✗ 文件名 / 步骤 成功·失败·跳过 / 命令输出」，四种行样式见下面「状态品种」</span>
+    </div>
+  </section>
+
+  <!-- ═══════════ 5 / 5 实时监听 ═══════════ -->
+  <section class="mk-card" data-el="sec-watch" data-section="watch" data-prod-section="watch">
+    <div class="mk-cardhead">
+      <h2>👁️ 实时监听（保存 md 即自动转换）</h2>
+      <span class="mk-tag">data-el="sec-watch"</span>
+      <span class="mk-anno">横跨整宽：盯住一个 md，一保存就自动转</span>
+    </div>
+    <p class="mk-cardsub">监听路径栏</p>
+    <div class="mk-row">
+      <input type="text" id="mk-watchfile" data-el="input-watch-file" data-prod="watchfile" placeholder="要监听的 .md 文件路径" style="width:420px">
+      <span class="mk-anno"><b>input-watch-file</b> 要盯的文件路径</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="btn-watch-start" data-prod="wstart">开始监听</button>
+      <span class="mk-anno"><b>btn-watch-start</b> 开始盯</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="btn-watch-stop" data-prod="wstop">停止</button>
+      <span class="mk-anno"><b>btn-watch-stop</b> 停止盯</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-idle" data-el="status-watch" data-prod="wstatus">○ 已停止</span>
+      <span class="mk-anno"><b>status-watch</b> 「● 监听中：文件 / ○ 已停止」</span>
+    </div>
+    <div class="mk-ph mk-ph-watch" data-el="watch-log" data-prod="wlog">
+      <span class="mk-ph-ico">👁️</span>
+      <span>（空——放监听日志，只留最近 30 行）</span>
+      <span class="mk-anno"><b>watch-log</b> 监听日志区</span>
+    </div>
+  </section>
+
+  <!-- ═══════════ 附：状态品种（纯样式示例，不算元素清单） ═══════════ -->
+  <section class="mk-card" data-el="sec-states" data-section="states" data-demo-section="states">
+    <div class="mk-cardhead">
+      <h2>🎨 状态品种（样式示例）</h2>
+      <span class="mk-tag">data-el="sec-states"</span>
+      <span class="mk-anno">这一块<b>不是新功能</b>，只是把元素的「各种状态长什么样」摆出来。<br>想改某个状态的样子，就说它的名字（如 <code>state-btn-loading</code>）。</span>
+    </div>
+
+    <p class="mk-cardsub">按钮的 6 种状态</p>
+    <div class="mk-row">
+      <button data-el="state-btn-default" data-demo="1">默认按钮</button>
+      <span class="mk-anno"><b>state-btn-default</b> 普通态</span>
+    </div>
+    <div class="mk-row">
+      <button class="mk-demo-hover" data-el="state-btn-hover" data-demo="1">悬停按钮（模拟）</button>
+      <span class="mk-anno"><b>state-btn-hover</b> 鼠标悬停态（示例页里用样式直接摆出悬停的样子）</span>
+    </div>
+    <div class="mk-row">
+      <button disabled data-el="state-btn-disabled" data-demo="1">禁用按钮</button>
+      <span class="mk-anno"><b>state-btn-disabled</b> 不可点（半透明 + 禁止光标），例：服务已在跑时的「启动服务」</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="state-btn-loading" data-demo="1"><span class="mk-spin"></span>加载中…</button>
+      <span class="mk-anno"><b>state-btn-loading</b> 进行中：转圈 + 文字</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="state-btn-success" data-demo="1">成功 ✓</button>
+      <span class="mk-anno"><b>state-btn-success</b> 成功态</span>
+    </div>
+    <div class="mk-row">
+      <button data-el="state-btn-failure" data-demo="1">失败 ✗</button>
+      <span class="mk-anno"><b>state-btn-failure</b> 失败态</span>
+    </div>
+    <div class="mk-row">
+      <button class="primary" data-el="state-btn-primary" data-demo="1">主按钮</button>
+      <span class="mk-anno"><b>state-btn-primary</b> 强调色主按钮（现在只有「开始转换」是这种）</span>
+    </div>
+
+    <p class="mk-cardsub">一行进度</p>
+    <div class="mk-row">
+      <span class="mk-progress" data-el="state-progress" data-demo="1"><i></i></span>
+      <span class="mk-anno"><b>state-progress</b> 进度条（<b>现在界面没有</b>；要不要加、加在哪里你说了算）</span>
+    </div>
+
+    <p class="mk-cardsub">状态栏文字的 5 种口味</p>
+    <div class="mk-row">
+      <span class="status st-ready" data-el="state-text-ready" data-demo="1">● 就绪 · 服务正常</span>
+      <span class="mk-anno"><b>state-text-ready</b> 绿＝正常</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-idle" data-el="state-text-idle" data-demo="1">○ 已停止</span>
+      <span class="mk-anno"><b>state-text-idle</b> 灰＝未启动/空闲</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-down" data-el="state-text-warn" data-demo="1">● 就绪 · 服务未启动</span>
+      <span class="mk-anno"><b>state-text-warn</b> 橙＝还差一步（需要你动手）</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-error" data-el="state-text-error" data-demo="1">⚠ 查询失败：连接被拒绝</span>
+      <span class="mk-anno"><b>state-text-error</b> 红＝出错</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-dim" data-el="state-text-dim" data-demo="1">（检查中…）</span>
+      <span class="mk-anno"><b>state-text-dim</b> 浅灰小字＝说明/占位</span>
+    </div>
+
+    <p class="mk-cardsub">模型预热的 4 种状态（点「启动服务」后会依次看到的样子）</p>
+    <div class="mk-row">
+      <span class="status st-down" data-el="state-tts-down" data-demo="1">● 就绪 · GPT-SoVITS 服务未启动（点「▶ 启动 GPT-SoVITS 服务」，或把引擎切到 GENIE）</span>
+      <span class="mk-anno"><b>state-tts-down</b> down＝服务没起</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-starting" data-el="state-tts-starting" data-demo="1">⏳ 正在加载模型…（127.0.0.1:9880）（可以继续改下面的选项，不用等）</span>
+      <span class="mk-anno"><b>state-tts-starting</b> starting＝加载中，此时<b>其他选项都不锁</b></span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-ready" data-el="state-tts-ready" data-demo="1">● 就绪 · GPT-SoVITS 服务在跑（127.0.0.1:9880）</span>
+      <span class="mk-anno"><b>state-tts-ready</b> ready＝可以转换了</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-error" data-el="state-tts-error" data-demo="1">⚠ 模型加载失败：显存不足</span>
+      <span class="mk-anno"><b>state-tts-error</b> error＝失败，文字来自后端</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-error" data-el="state-tts-timeout" data-demo="1">⚠ 超过 120 s 仍未就绪，请查启动日志，日志：output/tts/p10_serve_si.log</span>
+      <span class="mk-anno"><b>state-tts-timeout</b> 等太久＝超时提示（带日志路径）</span>
+    </div>
+    <div class="mk-row">
+      <span class="status st-ready" data-el="state-tts-noservice" data-demo="1">● 就绪 · 当前引擎（GENIE）不需要 GPT-SoVITS 服务</span>
+      <span class="mk-anno"><b>state-tts-noservice</b> 换成不需要服务的引擎时的文案</span>
+    </div>
+
+    <p class="mk-cardsub">日志行的 4 种口味</p>
+    <div class="mk-logbox">
+      <div class="mk-line dim" data-el="state-line-step" data-demo="1">[任务] 目标=pdf 文件/目录数=3</div>
+      <div class="mk-line ok" data-el="state-line-ok" data-demo="1">✓ E:\notes\a.md</div>
+      <div class="mk-line dim" data-el="state-line-skip" data-demo="1">   [to_pdf] 跳过（产物已存在，本次没重新生成）</div>
+      <div class="mk-line err" data-el="state-line-err" data-demo="1">✗ E:\notes\b.md</div>
+      <div class="mk-line err" data-el="state-line-reqfail" data-demo="1">请求失败: TypeError: Failed to fetch</div>
+    </div>
+    <div class="mk-row">
+      <span class="mk-anno">上面这些日志行都是静态示例文字，真界面里由转换结果填。<b>想改配色/字体/行距就说 state-line-* 这几个名字。</b></span>
+    </div>
+  </section>
+
+  <!-- ═══════════ 元素总览表（对照用） ═══════════ -->
+  <section class="mk-card" data-el="sec-inventory" data-section="inventory" data-demo-section="inventory">
+    <div class="mk-cardhead">
+      <h2>📑 元素总览（按名字对照）</h2>
+      <span class="mk-anno">下面就是现在界面里<b>全部</b>元素：5 个区块 / 15 个按钮 / 19 个输入（含 8 个单选）/ 4 个下拉。<br>「原名」一列是代码里的编号，你只用管「示例页名字」那一列。</span>
+    </div>
+
+    <p class="mk-cardsub">区块 · 5 个</p>
+    <table class="mk-table">
+      <tr><th>示例页名字</th><th>区块</th><th>原名</th></tr>
+      <tr><td><code>sec-browse</code></td><td>📁 文件浏览</td><td>section 1</td></tr>
+      <tr><td><code>sec-selected</code></td><td>📋 已选文件</td><td>section 2</td></tr>
+      <tr><td><code>sec-options</code></td><td>⚙️ 转换选项</td><td>section 3（横跨整宽）</td></tr>
+      <tr><td><code>sec-log</code></td><td>📜 转换日志</td><td>section 4（横跨整宽）</td></tr>
+      <tr><td><code>sec-watch</code></td><td>👁️ 实时监听</td><td>section 5（横跨整宽）</td></tr>
+    </table>
+
+    <p class="mk-cardsub">按钮 · 15 个</p>
+    <table class="mk-table">
+      <tr><th>示例页名字</th><th>按钮</th><th>原名（id）</th></tr>
+      <tr><td><code>btn-up</code></td><td>⬆ 上级</td><td>up</td></tr>
+      <tr><td><code>btn-pickdir</code></td><td>📥 选当前目录（仅 image 模式）</td><td>pickdir</td></tr>
+      <tr><td><code>btn-select-all</code></td><td>☑ 全选</td><td>btn-selall</td></tr>
+      <tr><td><code>btn-invert</code></td><td>☐ 反选</td><td>btn-invsel</td></tr>
+      <tr><td><code>btn-expand-all</code></td><td>▸ 全部展开</td><td>btn-expand</td></tr>
+      <tr><td><code>btn-collapse-all</code></td><td>▾ 全部折叠</td><td>btn-collapse</td></tr>
+      <tr><td><code>btn-clear</code></td><td>清空</td><td>clear</td></tr>
+      <tr><td><code>btn-add-paths</code></td><td>添加路径</td><td>addpaths</td></tr>
+      <tr><td><code>btn-ocr-start</code></td><td>🚀 启动 Ollama</td><td>ocrstart</td></tr>
+      <tr><td><code>btn-ocr-pull</code></td><td>⬇ 拉取模型</td><td>ocrpull</td></tr>
+      <tr><td><code>btn-tts-serve</code></td><td>▶ 启动 GPT-SoVITS 服务</td><td>ttsserve</td></tr>
+      <tr><td><code>btn-tts-stop</code></td><td>■ 停止服务</td><td>ttsstop</td></tr>
+      <tr><td><code>btn-convert</code></td><td>开始转换（主按钮）</td><td>convert</td></tr>
+      <tr><td><code>btn-watch-start</code></td><td>开始监听</td><td>wstart</td></tr>
+      <tr><td><code>btn-watch-stop</code></td><td>停止</td><td>wstop</td></tr>
+    </table>
+
+    <p class="mk-cardsub">输入 · 19 个（含 8 个单选）</p>
+    <table class="mk-table">
+      <tr><th>示例页名字</th><th>控件</th><th>原名（id / 取值）</th></tr>
+      <tr><td><code>input-curdir</code></td><td>只读框：当前目录</td><td>curdir</td></tr>
+      <tr><td><code>input-search</code></td><td>文本框：搜索文件名</td><td>search</td></tr>
+      <tr><td><code>radio-target-pdf</code></td><td>单选：PDF（默认）</td><td>target=pdf</td></tr>
+      <tr><td><code>radio-target-tex</code></td><td>单选：TeX</td><td>target=tex</td></tr>
+      <tr><td><code>radio-target-json</code></td><td>单选：JSON</td><td>target=json</td></tr>
+      <tr><td><code>radio-target-md</code></td><td>单选：MD</td><td>target=md</td></tr>
+      <tr><td><code>radio-target-docx</code></td><td>单选：DOCX</td><td>target=docx</td></tr>
+      <tr><td><code>radio-target-lint</code></td><td>单选：lint 检查</td><td>target=lint</td></tr>
+      <tr><td><code>radio-target-image</code></td><td>单选：图片→MD (OCR)</td><td>target=image</td></tr>
+      <tr><td><code>radio-target-audio</code></td><td>单选：文本→语音 (TTS)</td><td>target=audio</td></tr>
+      <tr><td><code>input-outdir</code></td><td>文本框：输出目录</td><td>outdir</td></tr>
+      <tr><td><code>check-ocr-recursive</code></td><td>复选：递归子目录</td><td>ocr_recursive</td></tr>
+      <tr><td><code>input-tail-pad</code></td><td>数字：收尾静音（秒）</td><td>tts_tail_pad</td></tr>
+      <tr><td><code>check-srt</code></td><td>复选：同时输出 .srt</td><td>tts_srt</td></tr>
+      <tr><td><code>check-draw</code></td><td>复选：抽卡模式</td><td>tts_draw</td></tr>
+      <tr><td><code>check-open-pdf</code></td><td>复选：转换后打开 PDF</td><td>openpdf</td></tr>
+      <tr><td><code>check-force</code></td><td>复选：覆盖已存在产物</td><td>force</td></tr>
+      <tr><td><code>input-version-count</code></td><td>数字：版本数</td><td>tts_count</td></tr>
+      <tr><td><code>input-watch-file</code></td><td>文本框：要监听的 md 路径</td><td>watchfile</td></tr>
+    </table>
+
+    <p class="mk-cardsub">下拉 · 4 个</p>
+    <table class="mk-table">
+      <tr><th>示例页名字</th><th>下拉</th><th>原名（id）</th></tr>
+      <tr><td><code>select-tex-engine</code></td><td>PDF 编译引擎（xelatex / pdflatex / lualatex）</td><td>engine</td></tr>
+      <tr><td><code>select-voice</code></td><td>音色</td><td>tts_voice</td></tr>
+      <tr><td><code>select-tts-engine</code></td><td>语音引擎（GPT-SoVITS / GENIE）</td><td>tts_engine</td></tr>
+      <tr><td><code>select-audio-format</code></td><td>音频格式（mp3 / wav）</td><td>tts_format</td></tr>
+    </table>
+
+    <p class="mk-cardsub">不是按钮也不是输入的其它元素</p>
+    <table class="mk-table">
+      <tr><th>示例页名字</th><th>元素</th><th>原名</th></tr>
+      <tr><td><code>tree-list</code></td><td>文件树本体（虚线空框）</td><td>browse</td></tr>
+      <tr><td><code>sel-list</code></td><td>已选文件列表（虚线空框）</td><td>selected</td></tr>
+      <tr><td><code>log-box</code></td><td>转换日志区（虚线空框）</td><td>log</td></tr>
+      <tr><td><code>watch-log</code></td><td>监听日志区（虚线空框）</td><td>wlog</td></tr>
+      <tr><td><code>input-paths</code></td><td>多行输入：手动粘贴路径</td><td>paths（textarea）</td></tr>
+      <tr><td><code>text-browse-count</code></td><td>「n/m 文件已选」计数</td><td>browsecnt</td></tr>
+      <tr><td><code>text-browse-err</code></td><td>读目录失败的提示行</td><td>browserr</td></tr>
+      <tr><td><code>text-sel-count</code></td><td>「（n 个）」计数</td><td>selcount</td></tr>
+      <tr><td><code>status-ocr</code></td><td>OCR 环境状态文字</td><td>ocrstatus</td></tr>
+      <tr><td><code>status-tts</code></td><td>TTS 服务状态文字</td><td>ttsstatus</td></tr>
+      <tr><td><code>text-target-hint</code></td><td>目标格式说明文字</td><td>targethint</td></tr>
+      <tr><td><code>text-conv-state</code></td><td>「转换中／完成」小字</td><td>convstate</td></tr>
+      <tr><td><code>status-watch</code></td><td>监听状态文字</td><td>wstatus</td></tr>
+      <tr><td><code>status-health</code></td><td>页头右侧「● 服务正常」</td><td>health</td></tr>
+      <tr><td><code>group-manual-paths</code></td><td>「手动粘贴路径」折叠块</td><td>details/summary</td></tr>
+      <tr><td><code>text-app-title</code></td><td>页头标题「📄 pipeline 转换面板」</td><td>h1</td></tr>
+    </table>
+  </section>
+
+  <!-- ═══════════ 用户批注区 ═══════════ -->
+  <section class="mk-card" data-el="sec-notes" data-section="notes" data-demo-section="notes">
+    <div class="mk-cardhead">
+      <h2>✍️ 用户批注区</h2>
+      <span class="mk-tag">data-el="input-user-notes"</span>
+      <span class="mk-anno">这里现在是空的，写什么都行</span>
+    </div>
+    <p class="mk-notes-hint">
+      建议写法：<b>名字</b> + <b>改成什么</b>。<br>
+      例：<code>sec-browse：文件树别占满左边，改成能拖宽</code> ·
+      <code>btn-convert：挪到右下角，字号大一点</code> ·
+      <code>整体：间距再紧一点，圆角小一点</code>
+    </p>
+    <textarea class="mk-ph-notes" data-el="input-user-notes" placeholder="（在这里写你的修改意见……）"></textarea>
+  </section>
+
+  <p class="mk-foot">pipeline 界面 · 元素示例页（静态）· 无脚本 / 无外部依赖 / 不连后端 —— 只用于沟通设计</p>
+</div>
+</body>
+</html>
