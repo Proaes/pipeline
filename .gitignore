@@ -66,3 +66,4 @@ test/_*.wav
 
 # 嵌套工作树在本仓库里要整体忽略：主仓不跟踪工作树目录（真源在 pipeline/.worktrees/）
 /.worktrees/
+!docs/
