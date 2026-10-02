@@ -1,34 +1,126 @@
+/* ════════════════════════════════════════════════════════════════════
+   pipeline 转换面板 · 样式（261002 重写）
+   背景：旧版 CSS 的类名与 index.html / modules/*.js 大面积对不上
+   （旧 CSS 写 #tree / .tree-dir / .tree-file / .sel-list，实际用的是
+     #browse / .tree-node / .tree-row / .tree-cb / #selected …），
+   于是界面上大半元素没有样式 —— 最直观的两个症状就是
+   「树看起来默认全部展开」和「点『全部折叠』没反应」：
+   代码确实给折叠容器加了 .collapsed，但旧 CSS 里没有这条规则。
+   本文件按「index.html 里出现的类 + JS 动态生成的类」逐个补齐，
+   并落实用户 261002 的四条界面要求（见文件末尾的对应表）。
+   ════════════════════════════════════════════════════════════════════ */
+
 :root { --bg:#f5f6f8; --card:#fff; --line:#e2e5ea; --accent:#3b82f6; --ok:#16a34a; --err:#dc2626;
-         --sel-bg:#e8f0fe; --hover-bg:#f0f4ff; --focus:#b6d4fe; }
+         --warn:#e08b00; --muted:#9ca3af; --sel-bg:#e8f0fe; --hover-bg:#f0f4ff; --focus:#b6d4fe; }
 * { box-sizing: border-box; }
 body { margin:0; font:14px/1.6 "Microsoft YaHei", system-ui, sans-serif; background:var(--bg); color:#1f2937; }
+
+/* ── 页头 ── */
 header { background:var(--card); border-bottom:1px solid var(--line); padding:12px 20px;
          display:flex; align-items:center; gap:12px; }
 header h1 { margin:0; font-size:18px; }
 #health { font-size:12px; color:#6b7280; }
-main { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:16px; padding:16px 20px 40px; }
+
+/* ── 版面：上面三块横跨整宽，最下一层两栏（文件浏览 | 已选文件） ── */
+main { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:16px;
+       padding:16px 20px 40px; align-items:start; }
 section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; min-width:0; }
 section.full { grid-column: 1 / -1; }
-h2 { margin:0 0 10px; font-size:15px; display:flex; align-items:center; gap:8px; }
-.dim { color:#9ca3af; font-size:12px; font-weight:400; }
-.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+h2 { margin:0 0 10px; font-size:15px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+h3.col-title { margin:0 0 8px; font-size:13px; font-weight:600; color:#4b5563; }
+.dim { color:var(--muted); font-size:12px; font-weight:400; }
+.push-right { margin-left:auto; }
+.h2-tools { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.h2-tools .dim { min-width:64px; text-align:right; }
+
+/* ── 转换选项：左列目标格式 / 右列引擎与模型 ── */
+.opt-cols { display:grid; grid-template-columns: minmax(0,0.85fr) minmax(0,1.15fr); gap:20px; }
+.opt-col { min-width:0; }
+.target-list { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px 10px; }
+.target-list label { display:flex; align-items:center; gap:6px; padding:6px 8px; cursor:pointer;
+                     border:1px solid var(--line); border-radius:8px; background:#fff; }
+.target-list label:hover { background:var(--hover-bg); }
+.target-list label:has(input:checked) { background:var(--sel-bg); border-color:var(--focus); }
+.t-icon { width:20px; text-align:center; flex:none; }
+.opt-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+.opt-bottom { border-top:1px solid var(--line); margin-top:12px; padding-top:12px; }
+.opt-bottom #outdir { flex:1 1 320px; min-width:220px; }
+
+/* ── 表单控件 ── */
 button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:8px;
-         background:#fff; cursor:pointer; }
+         background:#fff; cursor:pointer; color:#1f2937; }
 button:hover { background:var(--hover-bg); }
 button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
 button.primary:hover { filter:brightness(1.05); }
 button:disabled { opacity:.5; cursor:not-allowed; }
-input[type=text], input[type=number], select { font:inherit; padding:5px 8px; border:1px solid var(--line);
-         border-radius:8px; background:#fff; }
-input[type=text]:focus, select:focus { outline:2px solid var(--focus); outline-offset:0; }
-#tree { max-height:46vh; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
-.tree-dir { margin:2px 0; }
-.tree-dir > summary { cursor:pointer; padding:2px 4px; border-radius:6px; }
-.tree-dir > summary:hover { background:var(--hover-bg); }
-.tree-file { display:flex; align-items:center; gap:6px; padding:2px 4px 2px 20px; border-radius:6px; }
-.tree-file:hover { background:var(--hover-bg); }
-.tree-file.on { background:var(--sel-bg); }
-.sel-list { max-height:24vh; overflow:auto; }
-.sel-item { display:flex; align-items:center; gap:8px; padding:3px 4px; font-size:13px; }
-.sel-item span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sel-item .rm { color:var(--err); cursor:pointer; border:none; background:none; padding:0 4px; font-size:14px; }
+input[type=text], input[type=number], select, textarea { font:inherit; padding:5px 8px;
+         border:1px solid var(--line); border-radius:8px; background:#fff; color:#1f2937; }
+input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus {
+         outline:2px solid var(--focus); outline-offset:0; border-color:var(--focus); }
+input[readonly] { background:#f3f4f6; color:#4b5563; }
+input[type=checkbox], input[type=radio] { accent-color:var(--accent); width:15px; height:15px;
+         margin:0 4px 0 0; vertical-align:-2px; }
+label { white-space:nowrap; }
+
+/* ── 文件浏览 ── */
+.pathbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+.pathbar #curdir, .pathbar #watchfile { flex:1; min-width:0; }
+.tree-search { margin-bottom:8px; }
+.tree-search #search { width:100%; }
+.tree-toolbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+.tree-count { font-size:12px; color:var(--muted); margin-left:auto; }
+.tree-container { max-height:46vh; overflow:auto; border:1px solid var(--line); border-radius:8px;
+                  padding:6px 8px; background:#fff; }
+.tree-container:focus { outline:2px solid var(--focus); }
+.tree-node { margin:0; }
+.tree-row { display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:6px; cursor:pointer; }
+.tree-row:hover { background:var(--hover-bg); }
+.tree-row.focused { box-shadow: inset 0 0 0 1px var(--focus); }
+.focused { background:var(--sel-bg); }
+.tree-cb { margin:0; flex:none; }
+.tree-arrow { width:14px; flex:none; color:var(--muted); font-size:10px; transition:transform .12s; }
+.tree-arrow.expanded { transform: rotate(90deg); }
+.tree-arrow.leaf { visibility:hidden; }
+.tree-icon { flex:none; }
+.tree-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-muted { color:var(--muted); }
+.tree-size { margin-left:auto; color:var(--muted); font-size:12px; }
+.tree-children { margin-left:0; }
+.tree-children.collapsed { display:none; }   /* ← 旧 CSS 缺的就是这条：折叠失效的直接原因 */
+.collapsed { display:none; }
+.highlight { background:#fef08a; border-radius:3px; }
+
+/* ── 已选文件 ── */
+#selected { list-style:none; margin:0; padding:0; max-height:24vh; overflow:auto; }
+.sel-group-header { display:flex; align-items:center; gap:8px; margin-top:6px; padding:3px 6px;
+                    font-size:12px; color:#4b5563; background:#f9fafb; border-radius:6px; }
+.rm-group { margin-left:auto; padding:0 4px; border:none; background:none; color:var(--err); cursor:pointer; }
+.sel-item { display:flex; align-items:center; gap:8px; padding:3px 6px; font-size:13px; }
+.sel-item .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sel-item .rm { margin-left:auto; padding:0 4px; border:none; background:none; color:var(--err); cursor:pointer; }
+details { margin-top:8px; }
+details summary { cursor:pointer; color:#4b5563; }
+details textarea { width:100%; margin-top:6px; font-family:Consolas, "Courier New", monospace; font-size:13px; }
+details #addpaths { margin-top:6px; }
+
+/* ── 日志（转换日志 / 监听日志共用） ── */
+#log, #wlog { font-family:Consolas, "Courier New", monospace; font-size:12.5px; line-height:1.55;
+              background:#fbfcfd; border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+              max-height:32vh; overflow:auto; }
+.log-line { white-space:pre-wrap; word-break:break-all; }
+.log-line.ok { color:var(--ok); }
+.log-line.err { color:var(--err); }
+.log-line.dim { color:var(--muted); }
+
+/* ── 窄窗口：两列收成一列 ── */
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+  .opt-cols { grid-template-columns: 1fr; }
+  .target-list { grid-template-columns: 1fr; }
+}
+
+/* ── 用户 261002 四条要求的落点 ──
+   1) 默认全部展开 / 折叠失效 → `.tree-children.collapsed{display:none}`（箭头态 `.tree-arrow.expanded`）
+   2) sec-browse / sec-selected 放最下一层 → main 两栏 grid，两块排在 DOM 最后（index.html ④⑤）
+   3) sec-options 两列 → `.opt-cols`：左 `.target-list`（单选＋格式图标），右 引擎 / 模型 / 提前拉起
+   4) 日志复制 + 下载 → 两个按钮挂在日志 h2 右侧（`.h2-tools`），功能在 modules/log.js   */

@@ -12,8 +12,104 @@
   <span id="health">连接中…</span>
 </header>
 <main>
-  <!-- 文件浏览 -->
-  <section>
+
+  <!-- ① 转换选项：先决定「要拿到什么」（左列目标格式 / 右列引擎与模型） -->
+  <section class="full" data-el="sec-options">
+    <h2>⚙️ 转换选项</h2>
+    <div class="opt-cols">
+      <div class="opt-col">
+        <h3 class="col-title">目标格式</h3>
+        <div class="target-list">
+          <label><input type="radio" name="target" value="pdf" checked> <span class="t-icon">📕</span>PDF</label>
+          <label><input type="radio" name="target" value="tex"> <span class="t-icon">📐</span>TeX</label>
+          <label><input type="radio" name="target" value="json"> <span class="t-icon">📋</span>JSON</label>
+          <label><input type="radio" name="target" value="md"> <span class="t-icon">📝</span>MD</label>
+          <label><input type="radio" name="target" value="docx"> <span class="t-icon">📘</span>DOCX</label>
+          <label><input type="radio" name="target" value="lint"> <span class="t-icon">🔍</span>lint 检查</label>
+          <label><input type="radio" name="target" value="image"> <span class="t-icon">🖼️</span>图片→MD (OCR)</label>
+          <label><input type="radio" name="target" value="audio"> <span class="t-icon">🎵</span>文本→语音 (TTS)</label>
+        </div>
+        <div class="opt-row"><span class="dim" id="targethint"></span></div>
+      </div>
+
+      <div class="opt-col">
+        <h3 class="col-title">引擎 / 模型</h3>
+        <div class="opt-row">PDF 引擎：<select id="engine">
+          <option value="xelatex">xelatex（推荐）</option>
+          <option value="pdflatex">pdflatex</option>
+          <option value="lualatex">lualatex</option>
+        </select></div>
+        <div id="ocropts" class="opt-row" style="display:none">
+          <label><input type="checkbox" id="ocr_recursive"> 递归子目录</label>
+          <button id="ocrstart">🚀 启动 Ollama</button>
+          <button id="ocrpull">⬇ 拉取模型</button>
+          <span id="ocrstatus" class="dim">（检查 Ollama…）</span>
+        </div>
+        <div id="ttsopts" style="display:none">
+          <div class="opt-row">语音引擎：<select id="tts_engine">
+            <option value="gptsovits" selected>GPT-SoVITS 微调（音质最好，需先起服务）</option>
+            <option value="genie">GENIE（纯 CPU，零显存，无需服务）</option>
+          </select></div>
+          <div class="opt-row">音色：<select id="tts_voice"><option value="">（默认）</option></select></div>
+          <div class="opt-row">音频格式：<select id="tts_format">
+            <option value="mp3">mp3</option>
+            <option value="wav">wav</option>
+          </select>
+          　收尾静音：<input id="tts_tail_pad" type="number" step="0.05" min="0" value="0.55" style="width:72px"> 秒</div>
+          <div class="opt-row">
+            <label><input type="checkbox" id="tts_srt"> 同时输出 .srt 时间轴</label>
+            <label title="每次转换都写一份新文件（<名>_d01、_d02…），不覆盖也不跳过；同一段文本多抽几发挑最好"><input type="checkbox" id="tts_draw"> 抽卡模式</label>
+          </div>
+          <div class="opt-row" id="ttscountwrap" style="display:none">
+            <label title="一次生成几个版本（>1 时自动命名 <名>_d01、_d02…，方便并排挑最好的那一发）">版本数：<input id="tts_count" type="number" min="1" max="9" value="1" style="width:52px"></label>
+          </div>
+          <div class="opt-row">
+            提前拉起：<button id="ttsserve">▶ 启动 GPT-SoVITS 服务</button>
+            <button id="ttsstop">■ 停止服务</button>
+          </div>
+          <div class="opt-row"><span id="ttsstatus" class="dim">（检查 TTS 环境…）</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt-bottom">
+      <div class="opt-row">输出目录：<input id="outdir" placeholder="留空 = 源在 N_xxx/ 槽位则同级 (N+1)_目标/，否则与源同目录（OCR 无槽位时上级/2_md）">
+        <label><input type="checkbox" id="openpdf"> 转换后打开 PDF</label>
+        <label><input type="checkbox" id="force"> 覆盖已存在产物</label>
+      </div>
+      <div class="opt-row">
+        <button id="convert" class="primary">开始转换</button>
+        <span id="convstate" class="dim"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 转换日志：可复制 / 可下载 -->
+  <section class="full" data-el="sec-log">
+    <h2>📜 转换日志
+      <span class="h2-tools">
+        <span id="logstate" class="dim"></span>
+        <button id="logcopy" data-el="btn-log-copy" title="把日志全文复制到剪贴板">📋 复制日志</button>
+        <button id="logdownload" data-el="btn-log-download" title="把日志全文存成 .txt 文件">⬇ 下载日志</button>
+      </span>
+    </h2>
+    <div id="log">（就绪）</div>
+  </section>
+
+  <!-- ③ 实时监听 -->
+  <section class="full" data-el="sec-watch">
+    <h2>👁️ 实时监听（保存 md 即自动转换）</h2>
+    <div class="pathbar">
+      <input id="watchfile" placeholder="要监听的 .md 文件路径">
+      <button id="wstart">开始监听</button>
+      <button id="wstop">停止</button>
+      <span id="wstatus"></span>
+    </div>
+    <div id="wlog">（未启动）</div>
+  </section>
+
+  <!-- ④ 文件浏览（放最下一层：先定好要什么，再来找文件） -->
+  <section data-el="sec-browse">
     <h2>📁 文件浏览</h2>
     <div class="pathbar">
       <button id="up">⬆ 上级</button>
@@ -33,84 +129,17 @@
     <div class="tree-container" id="browse" tabindex="0"></div>
     <div id="browserr" class="dim"></div>
   </section>
-  <!-- 已选文件 -->
-  <section>
+
+  <!-- ⑤ 已选文件（同在最下一层） -->
+  <section data-el="sec-selected">
     <h2>📋 已选文件 <span id="selcount" class="dim"></span>
-      <button id="clear" style="margin-left:auto">清空</button></h2>
+      <button id="clear" class="push-right">清空</button></h2>
     <ul id="selected"></ul>
     <details>
       <summary>或手动粘贴文件路径（每行一个）</summary>
       <textarea id="paths" placeholder="E:\notes\note.md"></textarea>
-      <button id="addpaths" style="margin-top:4px">添加路径</button>
+      <button id="addpaths">添加路径</button>
     </details>
-  </section>
-  <!-- 转换选项 -->
-  <section class="full">
-    <h2>⚙️ 转换选项</h2>
-    <div class="opt-row">
-      目标格式：
-      <label><input type="radio" name="target" value="pdf" checked> PDF</label>
-      <label><input type="radio" name="target" value="tex"> TeX</label>
-      <label><input type="radio" name="target" value="json"> JSON</label>
-      <label><input type="radio" name="target" value="md"> MD</label>
-      <label><input type="radio" name="target" value="docx"> DOCX</label>
-      <label><input type="radio" name="target" value="lint"> lint 检查</label>
-      <label><input type="radio" name="target" value="image"> 图片→MD (OCR)</label>
-      <label><input type="radio" name="target" value="audio"> 文本→语音 (TTS)</label>
-      　引擎：<select id="engine">
-        <option value="xelatex">xelatex（推荐）</option>
-        <option value="pdflatex">pdflatex</option>
-        <option value="lualatex">lualatex</option>
-      </select>
-      　输出目录：<input id="outdir" placeholder="留空 = 源在 N_xxx/ 槽位则同级 (N+1)_目标/，否则与源同目录（OCR 无槽位时上级/2_md）" style="width:300px">
-    </div>
-    <div id="ocropts" class="opt-row" style="display:none">
-      <label><input type="checkbox" id="ocr_recursive"> 递归子目录</label>
-      <button id="ocrstart">🚀 启动 Ollama</button>
-      <button id="ocrpull">⬇ 拉取模型</button>
-      <span id="ocrstatus" class="dim">（检查 Ollama…）</span>
-    </div>
-    <div id="ttsopts" class="opt-row" style="display:none">
-      音色：<select id="tts_voice"><option value="">（默认）</option></select>
-      　引擎：<select id="tts_engine">
-        <option value="gptsovits" selected>GPT-SoVITS 微调（音质最好，需先起服务）</option>
-        <option value="genie">GENIE（纯 CPU，零显存，无需服务）</option>
-      </select>
-      　格式：<select id="tts_format">
-        <option value="mp3">mp3</option>
-        <option value="wav">wav</option>
-      </select>
-      　收尾静音：<input id="tts_tail_pad" type="number" step="0.05" min="0" value="0.55" style="width:72px"> 秒
-      <label><input type="checkbox" id="tts_srt"> 同时输出 .srt 时间轴</label>
-      <label title="每次转换都写一份新文件（<名>_d01、_d02…），不覆盖也不跳过；同一段文本多抽几发挑最好"><input type="checkbox" id="tts_draw"> 抽卡模式</label>
-      <button id="ttsserve">▶ 启动 GPT-SoVITS 服务</button>
-      <button id="ttsstop">■ 停止服务</button>
-      <span id="ttsstatus" class="dim">（检查 TTS 环境…）</span>
-    </div>
-    <div class="opt-row">
-      <label><input type="checkbox" id="openpdf"> 转换后打开 PDF</label>
-      <label><input type="checkbox" id="force"> 覆盖已存在产物</label>
-      <span class="dim" id="targethint"></span>
-      <label id="ttscountwrap" style="display:none" title="一次生成几个版本（>1 时自动命名 <名>_d01、_d02…，方便并排挑最好的那一发）">版本数：<input id="tts_count" type="number" min="1" max="9" value="1" style="width:52px"></label>
-      <button id="convert" class="primary" style="margin-left:16px">开始转换</button>
-      <span id="convstate" class="dim"></span>
-    </div>
-  </section>
-  <!-- 日志 -->
-  <section class="full">
-    <h2>📜 转换日志</h2>
-    <div id="log">（就绪）</div>
-  </section>
-  <!-- watch -->
-  <section class="full">
-    <h2>👁️ 实时监听（保存 md 即自动转换）</h2>
-    <div class="pathbar">
-      <input id="watchfile" placeholder="要监听的 .md 文件路径">
-      <button id="wstart">开始监听</button>
-      <button id="wstop">停止</button>
-      <span id="wstatus"></span>
-    </div>
-    <div id="wlog">（未启动）</div>
   </section>
 </main>
 

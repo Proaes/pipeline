@@ -49,6 +49,24 @@ body{margin:0;background:var(--bg);color:#1f2937;
          border-radius:999px;padding:1px 9px;white-space:nowrap;}
 .mk-condbox{border:1px dashed #fdba74;border-radius:10px;padding:4px 12px 10px;margin:10px 0 4px;background:#fffdf8;}
 
+/* ── 转换选项两列：左目标格式（带图标）/ 右引擎与模型 ── */
+.mk-opt-cols{display:grid;grid-template-columns:minmax(0,0.85fr) minmax(0,1.15fr);gap:20px;}
+.mk-opt-col{min-width:0;}
+.mk-col-title{margin:0 0 8px;font-size:13px;font-weight:600;color:#4b5563;}
+.mk-target-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;}
+.mk-target-list label{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer;
+                      border:1px solid var(--line);border-radius:8px;background:#fff;}
+.mk-target-list label:hover{background:var(--hover-bg);}
+.mk-target-list label:has(input:checked){background:var(--sel-bg);border-color:var(--focus);}
+.mk-t-icon{width:20px;text-align:center;flex:none;}
+
+/* ── 日志卡右上角工具按钮 / 最下一层并排的两块 ── */
+.mk-h2-tools{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.mk-h2-tools .mk-anno{min-width:56px;text-align:right;}
+.mk-push-right{margin-left:auto;}
+.mk-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;}
+@media (max-width: 900px){ .mk-opt-cols,.mk-target-list,.mk-two{grid-template-columns:1fr;} }
+
 /* ── 生产界面的页头（示例页里照着摆一条） ── */
 .mk-prodhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
              border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fcfcfd;}

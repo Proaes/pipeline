@@ -9,6 +9,7 @@
    ocr.js       Ollama 检查与模型拉取
    tts.js       音色列表 / 起停服务 / /api/tts/status 轮询
    convert.js   开始转换 + 转换日志
+   log.js       日志复制到剪贴板 / 下载成 .txt
    watch.js     实时监听
  ════════════════════════════════════════════════════════════ */
 
@@ -18,6 +19,7 @@ import { browse } from "./modules/browse.js";
 import { updateTargetHint } from "./modules/options.js";
 import "./modules/selection.js";
 import "./modules/convert.js";
+import "./modules/log.js";
 import "./modules/watch.js";
 
 /* 全局错误可见化 */
