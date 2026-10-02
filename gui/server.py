@@ -48,6 +48,70 @@ ROOT = BASE.parent                              # pipeline/
 TOOLS = ROOT / "tools"
 STATIC = BASE / "static"
 
+# 静态资源扩展名 → MIME。只放行这几类：前端拆成 .js/.css 后，浏览器必须能按正确类型取到它们。
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".ico": "image/x-icon",
+    ".woff2": "font/woff2",
+    ".map": "application/json; charset=utf-8",
+}
+
+
+def resolve_static(url_path: str):
+    """把 URL 路径解析成 static 目录下的真实文件；不合法或不存在都返回 None。
+
+    安全：① 只允许 STATIC 里的文件，`resolve()` 之后必须仍在 STATIC 之内（挡目录穿越，如 /static/../server.py）；
+          ② 后缀必须在白名单里（挡 .py/.log 之类被当静态文件读走）。
+    """
+    rel = url_path[len("/static/"):].lstrip("/")
+    if not rel:
+        return None
+    try:
+        candidate = (STATIC / rel).resolve()
+    except (OSError, ValueError):
+        return None
+    static_root = STATIC.resolve()
+    if candidate != static_root and static_root not in candidate.parents:
+        return None
+    if not candidate.is_file():
+        return None
+    if candidate.suffix.lower() not in MIME_TYPES:
+        return None
+    return candidate
+
+
+def serve_static(handler, url_path: str) -> bool:
+    """命中静态资源就回包并返回 True；否则返回 False，由调用方继续按 API 路径匹配。"""
+    candidate = resolve_static(url_path)
+    if candidate is None:
+        return False
+    try:
+        body = candidate.read_bytes()
+    except OSError as exc:
+        handler._send_json({"error": f"读取静态文件失败: {exc}"}, 500)
+        return True
+    handler.send_response(200)
+    handler.send_header("Content-Type", MIME_TYPES[candidate.suffix.lower()])
+    handler.send_header("Content-Length", str(len(body)))
+    # no-store 对 JS/CSS 同样重要：否则前端改了代码，浏览器还在用旧缓存，界面上"看起来没变"
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    try:
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionResetError):
+        pass  # 浏览器提前断开（切页面/刷新）不算错误
+    return True
+
+
 sys.path.append(str(TOOLS))                     # 复用 tools/_lib 的槽位解析（放末尾，避免遮挡同名模块）
 from _lib import common as _common  # noqa: E402
 
@@ -700,6 +764,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")  # 避免浏览器缓存旧页面
             self.end_headers()
             self.wfile.write(html)
+        elif serve_static(self, path):
+            pass  # 静态资源已回包
         elif path == "/api/health":
             self._send_json({"ok": True})
         elif path == "/api/watch":
