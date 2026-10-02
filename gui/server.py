@@ -768,6 +768,9 @@ class Handler(BaseHTTPRequestHandler):
             pass  # 静态资源已回包
         elif path == "/api/health":
             self._send_json({"ok": True})
+        elif path == "/api/tts/status":
+            # 廉价轮询用：只探端口与本地进程，不扫音色列表（契约见 _shared/INTERFACES.md §2.2）
+            self._send_json(tts_status())
         elif path == "/api/watch":
             self._send_json(watch_status())
         elif path == "/api/browse":
@@ -833,11 +836,85 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/ocr/pull":
             self._send_json(ocr_pull())
         elif path == "/api/tts/serve/start":
-            self._send_json(tts_serve_start())
+            # 应答 = start 的原有字段（started/log/…）+ status 字段（补 ready/stage），
+            # 让这一个响应体也能当 status 用（契约 §2.2）
+            self._send_json(tts_status(tts_serve_start()))
         elif path == "/api/tts/serve/stop":
             self._send_json(tts_serve_stop())
         else:
             self._send_json({"error": "not found"}, 404)
+
+
+# ── TTS 服务状态（冻结契约见 _shared/INTERFACES.md §2.2） ─────────────────
+TTS_STAGES = ("down", "starting", "ready", "error")  # stage 只许这四个值
+
+
+def tts_status(start_result: dict | None = None) -> dict:
+    """TTS 服务的状态对象；前端按 stage 分四支显示，按 alive 决定能否合成。
+
+    - alive：端口能连上（沿用 `tts_service_alive()` 的判据，与 to_audio.py 一致，不改语义）。
+    - ready：能立刻接受合成请求。当前判据 = alive —— 服务一旦在监听就说明模型已载入；
+      以后若要探模型可以再收紧，但这个字段的语义不变。
+    - stage：`down`(没起) / `starting`(本界面刚拉起、还在加载) / `ready`(可用)
+      / `error`(启动失败或进程已死)。
+    - managed_by_gui：是否由本界面启动（对应现有 `_tts_serve_proc`），决定「停止」按钮可不可用。
+    - start_result：`/api/tts/serve/start` 的原始应答。传进来时把它的原有字段并进结果，
+      并据此把「脚本缺失 / 子进程起不来」判成 error（否则那种失败与「没启动」无从区分）；
+      且 `message` 以 start 自己的文案为准（契约 §2.5），通用文案只给 `GET /api/tts/status`。
+    """
+    global _tts_serve_proc
+
+    alive = tts_service_alive()
+    proc = _tts_serve_proc
+    exited = proc is not None and proc.poll() is not None
+    managed = proc is not None and not exited  # 只有它还活着，「停止」才管得了
+    pid = proc.pid if managed else None
+    if pid is None and alive:
+        # 服务不是本界面起的：报端口上真正的属主，拿不到就留 null（契约允许 null）
+        owners = _pids_on_port(TTS_PORT)
+        pid = owners[0] if owners else None
+    log_path = TTS_SERVE_SCRIPT.parent / "p10_serve_si.log"
+
+    if alive:
+        stage = "ready"
+        message = f"服务在跑（{TTS_HOST}:{TTS_PORT}），可以合成"
+    elif managed:
+        stage = "starting"
+        message = (f"正在启动（PID {proc.pid}），模型加载要几十秒；"
+                   f"日志: {log_path}")
+    elif exited:
+        stage = "error"
+        message = (f"启动的进程已退出（PID {proc.pid}，退出码 {proc.returncode}）；"
+                   f"日志: {log_path}")
+    elif start_result is not None and not start_result.get("started"):
+        # 脚本缺失 / Popen 失败：tts_serve_start 已经把原因写在 message 里
+        stage = "error"
+        message = str(start_result.get("message") or "启动失败")
+    else:
+        stage = "down"
+        message = (f"服务未启动（{TTS_HOST}:{TTS_PORT}）；"
+                   f"点界面上的「启动 GPT-SoVITS 服务」，或运行: {TTS_SERVE_HINT}")
+
+    assert stage in TTS_STAGES, stage  # 冻结契约：只允许这四个值
+    status = {
+        "alive": alive,
+        "ready": alive,
+        "stage": stage,          # 恒为 TTS_STAGES 之一
+        "message": message,
+        "host": TTS_HOST,
+        "port": TTS_PORT,
+        "pid": pid,
+        "managed_by_gui": managed,
+    }
+    if start_result is None:
+        return status
+    merged = dict(start_result)  # 原有字段（started/log/…）一个不丢
+    merged.update(status)        # status 字段为准：alive 与 /api/tts/status 一致
+    # §2.5：start 应答的 message 以「这次点击发生了什么」为准，不被 status 的通用文案覆盖
+    own_message = start_result.get("message")
+    if isinstance(own_message, str) and own_message.strip():
+        merged["message"] = own_message
+    return merged
 
 
 def main():
