@@ -676,7 +676,16 @@ function Add-TaskRow { param([string]$Repo, [string]$Name, [string]$Branch, [str
   $existing = @(Get-OrderList $Repo)
   if ($existing -notcontains $Name) { $existing += $Name }
   $row = "| {0} | {1} | ``{2}`` | ``{3}`` | <依赖> | 待办 | {4} |" -f $existing.Count, $Name, $Branch, $Scope, $Owner
-  Add-Utf8NoBom -Path $path -Text ($row + "`r`n")
+  # 必须插在「最后一条表格行」之后 —— 直接 Append 会落到表尾注释下面，把表格断开（实测踩到）
+  $lines = @(Get-Content -LiteralPath $path)
+  $lastTable = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i].TrimStart().StartsWith('|')) { $lastTable = $i } }
+  if ($lastTable -ge 0) {
+    $new = @($lines[0..$lastTable]) + @($row) + @($lines[($lastTable + 1)..($lines.Count - 1)])
+    Write-Utf8NoBom -Path $path -Lines $new
+  } else {
+    Add-Utf8NoBom -Path $path -Text ($row + "`r`n")
+  }
 }
 
 # spawn 会往 TASKS.md 加一行，clean 必须把这一行撤掉 —— 否则登记表会攒下已经不存在的任务，
