@@ -29,6 +29,7 @@
 │   ├── README.md            本说明
 │   ├── wt.ps1 / wt.cmd      控制台（init / spawn / list / sync / merge / fold / clean）
 │   ├── _shared/             共享协调层（入库，靠提交留历史）
+│   │   ├── TASKBOOK.md      任务书：本轮要做什么、写范围、验收判据（先审再开工）
 │   │   ├── INTERFACES.md    接口冻结页：跨分支约定钉死在这里
 │   │   ├── TASKS.md         任务登记表（只有 base 能改）
 │   │   ├── INBOX.md         共享收件箱（谁都能追加消息块）
