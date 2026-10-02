@@ -1,0 +1,60 @@
+{
+  "_note": "GUI「语音引擎 / 模型」下拉的真源。一个「模型」= 一个引擎 + 一套权重，代号规则见 _codenames。改这个文件不用动代码；相对路径相对 pipeline 根解析，也允许写绝对路径。",
+  "_codenames": [
+    "代号 = <音色>-<引擎首字母小写>，例如 祀-G = 音色「祀」+ 引擎 GPT-SoVITS。",
+    "新增模型：在对应 engines[].models[] 里加一项，id 唯一、label 用中文、note 一句话说清是什么。",
+    "engine 缺省取所属引擎的 id；voice 缺省沿用引擎的 voice。"
+  ],
+  "engines": [
+    {
+      "id": "gptsovits",
+      "label": "GPT-SoVITS",
+      "summary": "PyTorch 推理，音质最好；要先把服务跑起来（可在这里点「▶ 启动 GPT-SoVITS 服务」）",
+      "voice": "si_ft",
+      "models": [
+        {
+          "id": "si-ft",
+          "label": "祀-G",
+          "note": "祀 的微调权重（GPT si-e15.ckpt + SoVITS si_e8_s328.pth，v2ProPlus）= 261001 定版，默认走这条",
+          "gpt_weights": "output/tts/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt",
+          "sovits_weights": "output/tts/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth"
+        },
+        {
+          "id": "si-org",
+          "label": "祀-G（原版权重）",
+          "note": "v2ProPlus 官方底模 s1v3.ckpt + v2Pro/s2Gv2ProPlus.pth，没经过我的素材微调；只用来对照，我没实测过听感",
+          "gpt_weights": "output/tts/gpt-sovits/GPT_SoVITS/pretrained_models/s1v3.ckpt",
+          "sovits_weights": "output/tts/gpt-sovits/GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth"
+        }
+      ]
+    },
+    {
+      "id": "genie",
+      "label": "GENIE",
+      "summary": "纯 CPU、零显存、不用起服务；走已导出的 ONNX 目录，音色略优但语气偏快（261001 实测）",
+      "voice": "si_ft",
+      "models": [
+        {
+          "id": "si-genie",
+          "label": "祀-G（ONNX/GENIE）",
+          "note": "si-ft 导出的 9 个 ONNX（output/tts/onnx/si_e15）；ONNX 路径固定在该目录，本界面不切换它",
+          "onnx_dir": "output/tts/onnx/si_e15"
+        }
+      ]
+    },
+    {
+      "id": "qwen",
+      "label": "Qwen3-TTS",
+      "summary": "零样本克隆，读稿音质最好但慢（实测 RTF≈4.2）；不需要 GPT-SoVITS 服务",
+      "voice": "si_c",
+      "models": [
+        {
+          "id": "qwen-base",
+          "label": "Qwen3-TTS-0.6B-Base（原版，零样本）",
+          "note": "只有官方底座：0.6B 的微调已暂缓，所以这里**没有**任何微调版可放",
+          "qwen_model": "D:/tools/qwen3tts/Qwen3-TTS-12Hz-0.6B-Base"
+        }
+      ]
+    }
+  ]
+}

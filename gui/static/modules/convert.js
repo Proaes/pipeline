@@ -32,6 +32,7 @@ try {
       audio_format: $("tts_format").value,
       voice: $("tts_voice").value,
       tts_engine: $("tts_engine").value,
+      tts_model: $("tts_model") ? $("tts_model").value : "",
       tts_draw: $("tts_draw").checked,
       tts_count: $("tts_count").value,
       audio_tail_pad: $("tts_tail_pad").value,

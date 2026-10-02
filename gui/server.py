@@ -142,6 +142,8 @@ TTS_HOST = os.environ.get("PIPELINE_TTS_HOST", "127.0.0.1")
 TTS_PORT = int(os.environ.get("PIPELINE_TTS_PORT", "9880"))
 TTS_SERVE_HINT = ("powershell -NoProfile -ExecutionPolicy Bypass -File "
                   + str(ROOT / "output" / "tts" / "p10_serve_si.ps1"))
+# 热切权重可能要在服务侧重新加载模型，给足时间；超时只报错，不阻塞界面线程池以外的逻辑
+TTS_APPLY_TIMEOUT = float(os.environ.get("PIPELINE_TTS_APPLY_TIMEOUT", "180"))
 
 
 def tts_service_alive(host: str = "", port: int = 0, timeout: float = 0.8) -> bool:
@@ -362,14 +364,31 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
             return []
         fmt = opts.get("audio_format") or "mp3"
         tts_engine = str(opts.get("tts_engine") or "gptsovits")
-        label = "TTS/GPT-SoVITS 微调" if tts_engine == "gptsovits" else "TTS/GENIE"
+        # 「模型」下拉（gui/tts_models.json）优先：它带齐了这套权重该用的引擎/音色/权重文件
+        model = find_tts_model(str(opts.get("tts_model") or "")) if opts.get("tts_model") else None
+        if model:
+            tts_engine = model["engine"]
+            if model["voice"]:
+                opts = dict(opts, voice=model["voice"])
+        label = {"gptsovits": "TTS/GPT-SoVITS 微调", "qwen": "TTS/Qwen3-TTS 读稿",
+                 "sapi": "TTS/SAPI"}.get(tts_engine, "TTS/GENIE")
+        if model:
+            label += f" · {model['label']}"
         step = {"step": f"文本 → {fmt.upper()}（{label}）",
                 "cmd": [PY_TTS, str(TEXT_TO_AUDIO), str(file),
                         "-o", str(out / f"{stem}.{fmt}"),
                         "--engine", tts_engine, "--format", fmt, "--genie-root", GENIE_ROOT]}
         cmd = step["cmd"]
+        if model:
+            cmd += ["--model", model["id"]]
+        if tts_engine == "qwen" and model and model["qwen_model"]:
+            cmd += ["--qwen-model", model["qwen_model"]]
         if tts_engine == "gptsovits":
             cmd += ["--host", TTS_HOST, "--port", str(TTS_PORT)]
+            if model and model["gpt_weights"]:
+                # 权重热切交给 to_audio 做（它在合成前切一次）；这里不切，免得「按钮点了没反应」
+                cmd += ["--gpt-weights", model["gpt_weights"],
+                        "--sovits-weights", model["sovits_weights"]]
             # 服务没起就直接给建议，不等到子进程报连接失败
             if not tts_service_alive():
                 step["precheck"] = (f"GPT-SoVITS 服务没在跑（{TTS_HOST}:{TTS_PORT}）。\n"
@@ -500,6 +519,211 @@ def convert_image_dirs(dirs: list[str], outdir: str, recursive: bool, force: boo
         results.append({"file": d, "ok": r["ok"], "steps": [
             {"step": f"图片 → MD（OCR，{n_img} 张）", "ok": r["ok"], "out": r["out"], "err": r["err"]}]})
     return results
+
+
+# ── TTS 模型注册表（真源 = gui/tts_models.json；261002 六次·用户要「模型可选」） ──
+# 一个「模型」= 一个引擎 + 一套权重。文件里用相对路径（相对 ROOT）或绝对路径都行；
+# 界面对「原版权重 / 微调权重」这类区别只按这个文件的字段显示，不在代码里写死任何模型名。
+TTS_MODELS_FILE = ROOT / "gui" / "tts_models.json"
+
+
+def _tts_models_registry() -> dict:
+    """读注册表；文件缺失或坏掉时回一份空表 + 原因，绝不让 500 冒到界面上。"""
+    import json  # 只有这一路用得到
+    try:
+        data = json.loads(TTS_MODELS_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"engines": [], "_error": f"找不到注册表 {TTS_MODELS_FILE}"}
+    except (OSError, ValueError) as exc:
+        return {"engines": [], "_error": f"注册表读不了：{exc}"}
+    if not isinstance(data, dict) or not isinstance(data.get("engines"), list):
+        return {"engines": [], "_error": "注册表结构不对：顶层要有 engines 数组"}
+    return data
+
+
+def _abs_from_registry(value: str) -> str:
+    """注册表里的路径 → 绝对路径（相对路径按 ROOT 解析），空值原样返回。"""
+    if not value:
+        return ""
+    p = Path(value)
+    return str(p if p.is_absolute() else ROOT / p)
+
+
+def _tts_engine_list() -> tuple[list[dict], str]:
+    """注册表 → 规范化后的引擎/模型清单（`(engines, error)`）。
+
+    只碰文件、不碰服务 —— `tts_models()` 与 `_tts_service_weights()` 都用它，
+    所以**这里绝不能回头调 `tts_models()`**（261002 实测：那样会无限递归到 RecursionError）。
+    """
+    data = _tts_models_registry()
+    engines: list[dict] = []
+    for eng in data.get("engines", []):
+        if not isinstance(eng, dict) or not eng.get("id"):
+            continue
+        eid = str(eng["id"])
+        out_models: list[dict] = []
+        for model in eng.get("models", []):
+            if not isinstance(model, dict) or not model.get("id"):
+                continue
+            gpt = _abs_from_registry(str(model.get("gpt_weights") or ""))
+            sov = _abs_from_registry(str(model.get("sovits_weights") or ""))
+            onnx = _abs_from_registry(str(model.get("onnx_dir") or ""))
+            qwen = _abs_from_registry(str(model.get("qwen_model") or ""))
+            exists: bool | None
+            if gpt or sov:
+                exists = all(Path(p).is_file() for p in (gpt, sov) if p)
+            elif onnx or qwen:
+                exists = Path(onnx or qwen).exists()
+            else:
+                exists = None
+            out_models.append({
+                "id": str(model["id"]),
+                "label": str(model.get("label") or model["id"]),
+                "note": str(model.get("note") or ""),
+                "engine": str(model.get("engine") or eid),
+                "voice": str(model.get("voice") or eng.get("voice") or ""),
+                "gpt_weights": gpt,
+                "sovits_weights": sov,
+                "onnx_dir": onnx,
+                "qwen_model": qwen,
+                "exists": exists,
+            })
+        engines.append({
+            "id": eid,
+            "label": str(eng.get("label") or eid),
+            "summary": str(eng.get("summary") or ""),
+            "models": out_models,
+        })
+    return engines, str(data.get("_error") or "")
+
+
+def _tts_engine_list_safe() -> tuple[list[dict], str]:
+    """读注册表的兜底包装：任何意外都变成「空表 + 原因」，不让界面拿到 500。"""
+    try:
+        return _tts_engine_list()
+    except Exception as exc:  # noqa: BLE001 - 兜底就是要把一切吃成一条消息
+        return [], f"读模型注册表出错：{exc}"
+
+
+def tts_models() -> dict:
+    """GET /api/tts/models：引擎 + 模型清单（界面下拉的数据源，契约 §2.7）。
+
+    - engines[]：`{id,label,summary,models[{id,label,note,voice,engine,exists,...}]}`。
+    - exists：权重文件在不在（原版权重/微调权重都能一眼看出哪条现在真能用）；
+      null = 这一项不由本地文件决定（qwen 的底座目录由工具自己按环境变量找）。
+    - current：正在跑的服务实际加载的那套权重（`_tts_service_weights()`）——
+      服务没起就是 null，界面据此提示「点『切到该模型』」。
+    """
+    engines, error = _tts_engine_list_safe()
+    result: dict = {"ok": not error, "engines": engines,
+                    "file": str(TTS_MODELS_FILE),
+                    "current": _tts_service_weights() if tts_service_alive() else None}
+    if error:
+        result["message"] = error
+    return result
+
+
+def find_tts_model(model_id: str) -> dict | None:
+    """按 id 在注册表里找一个模型（找不到返回 None）。只读文件，不问服务。"""
+    engines, _ = _tts_engine_list_safe()
+    for eng in engines:
+        for model in eng["models"]:
+            if model["id"] == model_id:
+                return model
+    return None
+
+
+def _tts_service_weights() -> dict | None:
+    """正在跑的服务实际加载的权重（读它自己的运行时配置）；读不到 → None。
+
+    `p10_serve_si.ps1` 写的 t2s/vits 是**相对 `gpt-sovits/GPT_SoVITS/` 的相对路径**，
+    所以先补成绝对路径再和注册表比对。只读文件，不启动也不改任何东西。
+    """
+    gsv = ROOT / "output" / "tts" / "gpt-sovits" / "GPT_SoVITS"
+    config = ROOT / "output" / "tts" / "tmp" / "tts_infer_si.yaml"
+    try:
+        text = config.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    t2s = vits = ""
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("t2s_weights_path:"):
+            t2s = s.split(":", 1)[1].strip()
+        elif s.startswith("vits_weights_path:"):
+            vits = s.split(":", 1)[1].strip()
+    if not t2s and not vits:
+        return None
+
+    def abspath(p: str) -> str:
+        q = Path(p)
+        return str((q if q.is_absolute() else gsv / q).resolve()).replace("\\", "/").lower()
+
+    want_g, want_v = abspath(t2s), abspath(vits)
+    engines, _ = _tts_engine_list_safe()
+    hit = None
+    for eng in engines:
+        for model in eng["models"]:
+            g = model["gpt_weights"].replace("\\", "/").lower()
+            v = model["sovits_weights"].replace("\\", "/").lower()
+            if g and v and (want_g, want_v) == (g, v):
+                hit = model["id"]
+                break
+        if hit:
+            break
+    return {"gpt": t2s, "sovits": vits, "model": hit, "config": str(config)}
+
+
+def tts_apply_model(model_id: str) -> dict:
+    """POST /api/tts/model/apply：把服务热切到该模型的权重（只切权重，不重启服务）。
+
+    服务没在跑时**不算失败** —— 权重信息照样回给界面，合成时由 `--gpt-weights /
+    --sovits-weights` 顺带切（`to_audio.apply_gptsovits_weights`），只是那时才能生效。
+    """
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    model = find_tts_model(model_id)
+    if not model:
+        return {"ok": False, "error": f"注册表里没有模型 {model_id!r}"}
+    gpt, sov = model["gpt_weights"], model["sovits_weights"]
+    res: dict = {"ok": True, "id": model["id"], "label": model["label"],
+                 "engine": model["engine"], "voice": model["voice"],
+                 "gpt_weights": gpt, "sovits_weights": sov, "switched": False}
+    if model["engine"] != "gptsovits" or not (gpt or sov):
+        if model["engine"] == "genie":
+            res["message"] = "GENIE 走的是已导出的 ONNX 目录，没有「切权重」这一步"
+        else:
+            res["message"] = f"{model['label']} 不需要切 GPT-SoVITS 权重"
+        return res
+    if not tts_service_alive():
+        res["message"] = (f"GPT-SoVITS 服务没在跑；界面已记下 {model['label']} 的权重，"
+                          f"等合成时会自动切（或先点「▶ 启动 GPT-SoVITS 服务」）")
+        return res
+    steps: list[str] = []
+    for name, path, endpoint in (("GPT", gpt, "set_gpt_weights"),
+                                 ("SoVITS", sov, "set_sovits_weights")):
+        if not path:
+            continue
+        url = (f"http://{TTS_HOST}:{TTS_PORT}/{endpoint}?weights_path="
+               + urllib.parse.quote(path, safe=""))
+        try:
+            with urllib.request.urlopen(url, timeout=TTS_APPLY_TIMEOUT) as resp:
+                code = resp.status
+            steps.append(f"{name} ✓（HTTP {code}）")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:200]
+            res.update({"ok": False, "steps": steps,
+                        "error": f"切换{name}权重失败：HTTP {exc.code} {detail}"})
+            return res
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            res.update({"ok": False, "steps": steps,
+                        "error": f"切换{name}权重失败：{exc}"})
+            return res
+    res.update({"switched": True, "steps": steps,
+                "message": f"服务权重已切到 {model['label']}（{'、'.join(steps)}）"})
+    return res
 
 
 # ── TTS 音色 ────────────────────────────────────────────────
@@ -789,6 +1013,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(browse(dir_arg, depth))
         elif path == "/api/tts/voices":
             self._send_json(tts_voices())
+        elif path == "/api/tts/models":
+            # 引擎/模型下拉的数据源（契约 §2.7）；只读注册表 + 权重文件在不在
+            self._send_json(tts_models())
         elif path == "/api/ocr/check":
             self._send_json(ocr_check())
         else:
@@ -841,6 +1068,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(tts_status(tts_serve_start()))
         elif path == "/api/tts/serve/stop":
             self._send_json(tts_serve_stop())
+        elif path == "/api/tts/model/apply":
+            body = self._read_body()
+            self._send_json(tts_apply_model(str(body.get("id") or "")))
         else:
             self._send_json({"error": "not found"}, 404)
 

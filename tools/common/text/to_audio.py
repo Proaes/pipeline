@@ -27,6 +27,10 @@ text_to_audio.py — 文本转语音工具
     python tools/common/text/to_audio.py note.md --dry-run
     python tools/common/text/to_audio.py note.md --trim-tail-ms 60 --tail-pad 0.6
     python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c   # 读稿
+    python tools/common/text/to_audio.py 稿子.txt --engine gptsovits --voice si_ft \\
+        --gpt-weights output/tts/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt \\
+        --sovits-weights output/tts/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth
+        # 先让正在跑的服务热切到这套权重，再合成（切一次，不逐句切）
 
 前置条件:
     genie 引擎：D:\\mamba\\envs\\tts 环境 + D:\\tools\\genie 下的资源（见 --check）
@@ -50,6 +54,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -474,6 +479,33 @@ def service_alive(host: str, port: int, timeout: float = 1.5) -> bool:
             return True
     except OSError:
         return False
+
+
+def apply_gptsovits_weights(gpt: str, sovits: str, opts: argparse.Namespace) -> list[str]:
+    """把正在跑的服务热切到指定权重；返回每步的中文回执（供 GUI 写进「步骤输出」）。
+
+    服务是 `api_v2.py`，它自带 `/set_gpt_weights` 与 `/set_sovits_weights`，切权重不用重启
+    （省掉一次几十秒的模型加载）。两个路径给谁就只切谁 —— 只想换 SoVITS 时 gpt 传空串即可。
+    路径能是相对 `GPT_SoVITS/` 的相对路径，也能是绝对路径，解析由服务自己负责。
+    """
+    steps: list[str] = []
+    base = f"http://{opts.host}:{opts.port}"
+    for name, path, endpoint in (("GPT", gpt, "set_gpt_weights"),
+                                 ("SoVITS", sovits, "set_sovits_weights")):
+        if not path:
+            continue
+        url = (f"{base}/{endpoint}?weights_path="
+               + urllib.parse.quote(str(path), safe=""))
+        try:
+            with urllib.request.urlopen(url, timeout=opts.timeout) as resp:
+                body = resp.read().decode("utf-8", "replace")[:200]
+            steps.append(f"服务权重已切到{name}：{Path(path).name}（{resp.status} {body}）")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            raise ToolError(f"切换{name}权重失败：HTTP {exc.code} {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise ToolError(f"切换{name}权重失败：连不上 {base}（{exc.reason}）") from exc
+    return steps
 
 
 def synth_gptsovits(text: str, out_wav: Path, opts: argparse.Namespace,
@@ -1015,6 +1047,13 @@ def main() -> None:
     g.add_argument("--port", type=int, default=DEFAULT_PORT,
                    help=f"gptsovits 服务端口 [默认: {DEFAULT_PORT}]")
     g.add_argument("--timeout", type=int, default=300, help="单句合成超时秒数 [默认: 300]")
+    g.add_argument("--model", default=None,
+                   help="模型代号（只用于日志与交接，例如 GUI 传的 si-ft；不影响权重）")
+    g.add_argument("--gpt-weights", default=None,
+                   help="gptsovits：合成前把服务的 GPT(t2s) 权重热切到该路径（绝对路径或相对 "
+                        "GPT_SoVITS/ 的相对路径）。服务没在跑就直接报错，不会静默忽略")
+    g.add_argument("--sovits-weights", default=None,
+                   help="gptsovits：同上，换 SoVITS(vits) 权重；只想换一个时另一个留空即可")
     g.add_argument("--speed", type=float, default=1.0,
                    help="语速倍率（仅 gptsovits；qwen / genie 不支持）[默认: 1.0]")
     g.add_argument("--seed", type=int, default=-1,
@@ -1138,6 +1177,17 @@ def main() -> None:
         if voice.get("prompt_wav"):
             print(f"  参考音频: {Path(voice['prompt_wav']).name}")
 
+    if opts.engine == "gptsovits" and (opts.gpt_weights or opts.sovits_weights):
+        # 只在这里切一次：切权重要几秒到几十秒，绝不能每句都切；--dry-run 不切（不动服务）
+        if opts.dry_run:
+            print("[跳过] --dry-run：不切服务权重")
+        elif not service_alive(opts.host, opts.port):
+            raise ToolError(f"要切权重但连不上服务 {opts.host}:{opts.port}；"
+                            f"先起 python api_v2.py -a {opts.host} -p {opts.port}")
+        else:
+            for line in apply_gptsovits_weights(opts.gpt_weights, opts.sovits_weights, opts):
+                print("  " + line)
+
     input_path = Path(opts.input).resolve()
     if not input_path.exists():
         print(f"[错误] 输入路径不存在: {input_path}")
@@ -1153,6 +1203,8 @@ def main() -> None:
         print(f"输出: {outs[0]}" if len(outs) == 1
               else f"输出: {len(outs)} 个版本（{outs[0].name} … {outs[-1].name}）")
         print(f"引擎: {opts.engine}" + ("（抽卡模式）" if draw else "") + "\n")
+        if opts.model:
+            print(f"模型: {opts.model}")
         if not draw and outs[0].exists() and not opts.force and not opts.dry_run:
             print(f"[跳过] {outs[0].name} 已存在，本次什么都没生成"
                   f"（加 -f 覆盖，或加 --draw／--count 每跑一次出新文件）")
