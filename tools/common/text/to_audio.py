@@ -9,6 +9,7 @@ text_to_audio.py — 文本转语音工具
 合成后端（--engine）:
     genie      本地 GENIE（GPT-SoVITS 的 ONNX 引擎），纯 CPU、零显存，默认
     gptsovits  调本地 GPT-SoVITS 的 api_v2.py HTTP 服务（127.0.0.1:9880）
+    qwen       Qwen3-TTS 0.6B 零样本克隆（进程内、走 GPU），音质最好但慢
     sapi       Windows 自带 SAPI 语音，零依赖、不需要参考音频，只用来验证链路
 
 音色（--voice）按以下顺序解析:
@@ -25,16 +26,20 @@ text_to_audio.py — 文本转语音工具
     python tools/common/text/to_audio.py note.md --engine sapi --format mp3
     python tools/common/text/to_audio.py note.md --dry-run
     python tools/common/text/to_audio.py note.md --trim-tail-ms 60 --tail-pad 0.6
+    python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c   # 读稿
 
 前置条件:
     genie 引擎：D:\\mamba\\envs\\tts 环境 + D:\\tools\\genie 下的资源（见 --check）
     gptsovits 引擎：先起本地服务 python api_v2.py -a 127.0.0.1 -p 9880
+    qwen 引擎：D:\\mamba\\envs\\tts 环境（qwen-tts + CUDA 版 torch）+ 模型目录
+        （见 --check）；实测约 4 倍实时，1000 字稿子约 13 分钟
     ffmpeg 需要在 PATH 中（后处理、拼接、转 mp3）
 """
 
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -53,11 +58,12 @@ from _lib import common  # noqa: E402
 
 # ── 常量 ──────────────────────────────────────────────────────────
 TEXT_EXTS = {".md", ".markdown", ".txt"}
-ENGINES = ("genie", "gptsovits", "sapi")
+ENGINES = ("genie", "gptsovits", "qwen", "sapi")
 FORMATS = ("mp3", "wav")
 
 VOICES_DIR = common.PROJECT_ROOT / "voices"
 DEFAULT_GENIE_ROOT = Path(r"D:\tools\genie")
+DEFAULT_QWEN_MODEL = Path(r"D:\tools\qwen3tts\Qwen3-TTS-12Hz-0.6B-Base")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9880
 REF_AUDIO_NAMES = ("ref.wav", "ref.mp3", "ref.flac", "ref.m4a", "ref.ogg")
@@ -74,6 +80,25 @@ DEFAULT_MIN_CHARS = 6
 
 # GENIE 预设角色 → 该角色的语言码
 GENIE_CHAR_LANG = {"feibi": "zh", "mika": "jp", "thirtyseven": "en"}
+
+# Qwen3-TTS 的语种名（模型 config.json 的 talker_config.codec_language_id 只认这些，
+# 不含方言键）——本工具的语种码（--text-lang / meta 的 ref_lang）先在这里翻译。
+# 默认 sdpa：实测 flash_attention_2 在本模型（talker → code_predictor 两层嵌套
+# 自回归）上更慢（RTF 4.08 对 3.13），所以不随 flash-attn 是否安装而变。
+DEFAULT_QWEN_ATTN = "sdpa"
+QWEN_LANG_ALIASES = {
+    "zh": "Chinese", "cn": "Chinese", "zh-cn": "Chinese", "chinese": "Chinese",
+    "en": "English", "english": "English",
+    "jp": "Japanese", "ja": "Japanese", "japanese": "Japanese",
+    "ko": "Korean", "korean": "Korean",
+    "de": "German", "german": "German",
+    "fr": "French", "french": "French",
+    "ru": "Russian", "russian": "Russian",
+    "es": "Spanish", "spanish": "Spanish",
+    "it": "Italian", "italian": "Italian",
+    "pt": "Portuguese", "portuguese": "Portuguese",
+    "auto": "Auto",
+}
 
 
 class ToolError(Exception):
@@ -196,6 +221,46 @@ def genie_root(opts: argparse.Namespace) -> Path:
         return Path(opts.genie_root)
     env = os.environ.get("GENIE_ROOT")
     return Path(env) if env else DEFAULT_GENIE_ROOT
+
+
+def qwen_model_dir(opts: argparse.Namespace) -> Path:
+    """Qwen3-TTS 模型目录：命令行 > 环境变量 > 默认。"""
+    if opts.qwen_model:
+        return Path(opts.qwen_model)
+    env = os.environ.get("QWEN_TTS_MODEL")
+    return Path(env) if env else DEFAULT_QWEN_MODEL
+
+
+def qwen_language(code: str) -> str:
+    """把本工具的语种码（zh / jp / en …）翻成 Qwen 认的语种名。"""
+    key = (code or "").strip().lower().replace("_", "-")
+    if key in QWEN_LANG_ALIASES:
+        return QWEN_LANG_ALIASES[key]
+    raise ToolError(f"Qwen 不认识语种 '{code}'；可用: "
+                    f"zh / en / jp / ko / de / fr / ru / es / it / pt / auto")
+
+
+def qwen_installed() -> bool:
+    """只看包在不在，**不导入** —— 导入 qwen_tts 会拉起 numba，
+    而 numba 要写临时目录，在本沙箱里会卡死；问「装没装」不值得冒这个险。
+    """
+    try:
+        return importlib.util.find_spec("qwen_tts") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def qwen_model_languages(model_dir: Path) -> list[str]:
+    """从模型 config.json 读它支持的语种名（纯读文件，不加载模型）。"""
+    cfg_path = model_dir / "config.json"
+    if not cfg_path.is_file():
+        return []
+    try:
+        cfg = json.loads(read_text(cfg_path))
+        ids = cfg.get("talker_config", {}).get("codec_language_id", {})
+    except (json.JSONDecodeError, AttributeError):
+        return []
+    return sorted(k for k in ids if "dialect" not in k)
 
 
 def builtin_characters(root: Path) -> list[str]:
@@ -505,6 +570,83 @@ def synth_sapi(text: str, out_wav: Path, opts: argparse.Namespace,
         raise ToolError(f"SAPI 合成失败: {(r.stderr or '').strip()[:300]}")
 
 
+# ── 后端 4：Qwen3-TTS（进程内，GPU 优先） ─────────────────────────
+class QwenEngine:
+    """Qwen3-TTS 零样本克隆：模型与音色提示各准备一次，之后逐句复用。
+
+    261002 实测（RTX 4060 8G / bf16 / sdpa）：93 字 → 75.8s 生成 / 17.6s 音频，
+    RTF ≈ 4.2；每句另有约 10s 固定开销，所以切句多少对总时长影响很小。
+    non_streaming_mode=True 实测不更快（77.2s），故保持默认 False。
+    瓶颈是 talker → code_predictor 的两层嵌套自回归，适合离线批量出成品。
+    """
+
+    def __init__(self, opts: argparse.Namespace, voice: dict):
+        self.opts = opts
+        self.voice = voice
+        self.torch = None
+        self.sf = None
+        self.model = None
+        self.prompt = None          # create_voice_clone_prompt 的产物，逐句复用
+        self.lang = "Chinese"
+
+    def prepare(self) -> None:
+        model_dir = qwen_model_dir(self.opts)
+        if not (model_dir / "config.json").is_file():
+            raise ToolError(
+                f"找不到 Qwen3-TTS 模型目录: {model_dir}\n"
+                f"    用 --qwen-model 指定，或设环境变量 QWEN_TTS_MODEL"
+            )
+        ref = self.voice.get("prompt_wav")
+        if not ref:
+            raise ToolError("qwen 引擎需要参考音频（--ref-audio 或 --voice）")
+
+        t0 = time.time()
+        import soundfile as sf  # noqa: PLC0415
+        import torch  # noqa: PLC0415
+        from qwen_tts import Qwen3TTSModel  # noqa: PLC0415
+        self.torch, self.sf = torch, sf
+        print(f"  import qwen_tts      {time.time() - t0:6.2f}s")
+
+        device = self.opts.qwen_device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+        # CPU 上 bf16 没意义也慢，统一用 float32；CUDA 用 bf16（fp16 会数值溢出崩）
+        dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
+        if device.startswith("cuda"):
+            print(f"  设备 {device}（{torch.cuda.get_device_name(device)}）"
+                  f"| dtype {dtype} | attn {self.opts.qwen_attn}")
+        else:
+            print(f"  设备 cpu | dtype {dtype} | attn {self.opts.qwen_attn}"
+                  f"（没看到 CUDA，会比 GPU 慢一个量级）")
+
+        t0 = time.time()
+        self.model = Qwen3TTSModel.from_pretrained(
+            str(model_dir), device_map=device, dtype=dtype,
+            attn_implementation=self.opts.qwen_attn)
+        print(f"  加载模型             {time.time() - t0:6.2f}s")
+
+        # 参考音频的编码（ref_code + 说话人向量）在这里一次做完，之后逐句复用；
+        # 没给逐字文本时只能走 x_vector_only_mode（只用音色向量，丢掉 ICL 条件）。
+        ref_text = (self.voice.get("prompt_text") or "").strip()
+        self.lang = qwen_language(self.opts.text_lang)
+        t0 = time.time()
+        self.prompt = self.model.create_voice_clone_prompt(
+            ref_audio=str(ref), ref_text=ref_text or None,
+            x_vector_only_mode=not ref_text)
+        mode = (f"ICL（逐字文本 {len(ref_text)} 字）" if ref_text
+                else "仅音色向量（没给 ref_text，音色像但语气弱）")
+        print(f"  音色提示             {time.time() - t0:6.2f}s"
+              f"  ({mode}；目标文本 {self.lang})")
+
+    def synth(self, text: str, out_wav: Path) -> None:
+        # 这条链路是随机解码（do_sample=True），--seed >= 0 时固定一下便于复现
+        if self.opts.seed is not None and self.opts.seed >= 0:
+            self.torch.manual_seed(self.opts.seed)
+        wavs, sr = self.model.generate_voice_clone(
+            text=text, language=self.lang, voice_clone_prompt=self.prompt)
+        if not wavs:
+            raise ToolError("Qwen 没有产出音频")
+        self.sf.write(str(out_wav), wavs[0], sr)
+
+
 # ── 音频后处理 ────────────────────────────────────────────────────
 def ffmpeg(args: list[str], timeout: int = 900) -> subprocess.CompletedProcess:
     return subprocess.run(["ffmpeg", "-y", "-v", "error", *args],
@@ -624,6 +766,14 @@ def env_check(opts: argparse.Namespace) -> None:
     print(f"  已注册音色      : {'、'.join(rv) if rv else '（空）'}")
     alive = service_alive(opts.host, opts.port)
     print(f"  GPT-SoVITS 服务 : {opts.host}:{opts.port} {'在跑' if alive else '未启动'}")
+    qdir = qwen_model_dir(opts)
+    print(f"  Qwen 模型       : {qdir}  "
+          f"{'存在' if (qdir / 'config.json').is_file() else '不存在'}")
+    print(f"  qwen_tts        : {'已安装' if qwen_installed() else '未安装'}"
+          f"（{sys.executable}）")
+    qlangs = qwen_model_languages(qdir)
+    if qlangs:
+        print(f"  Qwen 支持语种   : {'、'.join(qlangs)}（--text-lang 用 zh/en/jp… 即可）")
     sv = sapi_voices()
     print(f"  SAPI 语音       : {'、'.join(sv) if sv else '查询失败或无'}")
 
@@ -649,6 +799,9 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
     if opts.engine == "genie":
         engine = GenieEngine(opts, voice)
         engine.prepare()
+    elif opts.engine == "qwen":
+        engine = QwenEngine(opts, voice)
+        engine.prepare()
     elif opts.engine == "gptsovits" and not service_alive(opts.host, opts.port):
         raise ToolError(f"连不上 GPT-SoVITS 服务 {opts.host}:{opts.port}；"
                         f"先起 python api_v2.py -a {opts.host} -p {opts.port}")
@@ -667,7 +820,7 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
 
         for attempt in (1, 2):
             try:
-                if opts.engine == "genie":
+                if engine is not None:      # genie / qwen：引擎实例已加载好
                     engine.synth(chunk, out)
                 elif opts.engine == "gptsovits":
                     synth_gptsovits(chunk, out, opts, voice)
@@ -702,7 +855,9 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
                 voice: dict) -> bool:
     """处理单个文本文件。"""
     print(f"  读取: {src}")
-    speakable = md_to_speakable(read_text(src))
+    speakable = read_text(src)
+    if not opts.raw:
+        speakable = md_to_speakable(speakable)
     chunks = split_sentences(speakable, opts.max_chars, opts.min_chars)
     if not chunks:
         print("  [跳过] 洗掉 Markdown 标记后没有可朗读的文字")
@@ -828,6 +983,7 @@ def main() -> None:
   python tools/common/text/to_audio.py note.md --trim-tail-ms 60 --tail-pad 0.6
   python tools/common/text/to_audio.py note.md --engine sapi --format mp3
   python tools/common/text/to_audio.py note.md --dry-run
+  python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c -o test/稿子.mp3
         """,
     )
     parser.add_argument("input", nargs="?", default=None, help="输入文本文件或目录")
@@ -845,6 +1001,9 @@ def main() -> None:
                         help="把 --ref-audio 注册成音色（写入 voices/<音色名>/）；"
                              "配合 --ref-text 与 --prompt-lang 指定逐字文本与参考语种")
     parser.add_argument("--dry-run", action="store_true", help="只做清洗与切句，不合成")
+    parser.add_argument("--raw", action="store_true",
+                        help="原样朗读：跳过 Markdown 清洗。稿子里有 $ 公式、**强调**、"
+                             "「1.」编号行时用它，免得那些字符被静默吃掉")
 
     g = parser.add_argument_group("合成")
     g.add_argument("--engine", default="genie", choices=ENGINES,
@@ -856,12 +1015,23 @@ def main() -> None:
     g.add_argument("--port", type=int, default=DEFAULT_PORT,
                    help=f"gptsovits 服务端口 [默认: {DEFAULT_PORT}]")
     g.add_argument("--timeout", type=int, default=300, help="单句合成超时秒数 [默认: 300]")
-    g.add_argument("--speed", type=float, default=1.0, help="语速倍率（仅 gptsovits）[默认: 1.0]")
-    g.add_argument("--seed", type=int, default=-1, help="随机种子（仅 gptsovits）[默认: -1]")
+    g.add_argument("--speed", type=float, default=1.0,
+                   help="语速倍率（仅 gptsovits；qwen / genie 不支持）[默认: 1.0]")
+    g.add_argument("--seed", type=int, default=-1,
+                   help="随机种子（gptsovits / qwen）[默认: -1 随机]")
+    g.add_argument("--qwen-model", default=None,
+                   help=f"Qwen3-TTS 模型目录 [默认: 环境变量 QWEN_TTS_MODEL 或 {DEFAULT_QWEN_MODEL}]")
+    g.add_argument("--qwen-device", default=None,
+                   help="Qwen 推理设备 [默认: 有 CUDA 用 cuda:0，否则 cpu]")
+    g.add_argument("--qwen-attn", default=DEFAULT_QWEN_ATTN,
+                   choices=("sdpa", "flash_attention_2", "eager"),
+                   help=f"Qwen 的 attention 实现 [默认: {DEFAULT_QWEN_ATTN}"
+                        f" —— 实测比 flash_attention_2 快，装了 FA2 也别切]")
 
     v = parser.add_argument_group("音色")
     v.add_argument("--voice", default=None, help="音色名（voices/<名>/ 或 GENIE 预设角色名）")
-    v.add_argument("--ref-audio", default=None, help="临时参考音频（仅 sapi/gptsovits 生效）")
+    v.add_argument("--ref-audio", default=None,
+                   help="临时参考音频（覆盖 --voice；sapi 不用）")
     v.add_argument("--ref-text", default=None, help="参考音频的逐字文本")
     v.add_argument("--text-lang", default="zh", help="待合成文本语种 [默认: zh]")
     v.add_argument("--prompt-lang", default="zh", help="参考文本语种 [默认: zh]")
@@ -956,6 +1126,11 @@ def main() -> None:
     if not check_ffmpeg():
         print("[错误] 需要 ffmpeg（后处理、拼接、转 mp3），但 PATH 里找不到")
         sys.exit(1)
+
+    if opts.engine == "qwen" and not opts.dry_run:
+        # 提前打招呼：实测 RTF ≈ 4，长稿要等十几分钟，不然会被当成卡死
+        print("[提示] Qwen 实测约 4 倍实时（音频时长的 4 倍，另有每句约 10 秒固定开销）；"
+              "1000 字稿子约 13 分钟。按句打印进度，请耐心等\n")
 
     voice = resolve_voice(opts)
     if voice.get("name"):
