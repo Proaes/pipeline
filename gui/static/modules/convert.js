@@ -1,14 +1,23 @@
 "use strict";
 
 /* ════════════════════════════════════════════════════════════
- 开始转换 + 日志渲染（从 app.js 原样搬来）
+ 开始转换 + 日志渲染
+
+ 261002 七次（用户要求）：转换入口有两个 ——
+   ① 「转换选项」栏里那个（#convert，原来就有）
+   ② 「📋 已选文件」栏里那个（#convert2，新加）
+ 两者**共用同一个 startConvert()**：选完文件就在原地能按，不用再滚回上面去；
+ 运行时两个一起禁用，避免连点两次并发转换。
  ════════════════════════════════════════════════════════════ */
 
 import { $, logLine } from "./dom.js";
 import { api } from "./api.js";
 import { S } from "./state.js";
 
-$("convert").onclick = async () => {
+const CONVERT_BUTTONS = ["convert", "convert2"];
+
+/** 两个入口共用：跑一次转换，结果写进日志。 */
+export async function startConvert() {
 const target = document.querySelector("input[name=target]:checked").value;
 const log = $("log");
 log.innerHTML = "";
@@ -16,8 +25,8 @@ if (S.sel.size === 0) {
   logLine(log, "请先在左侧选择文件或目录", "err");
   return;
 }
-const btn = $("convert");
-btn.disabled = true;
+const btns = CONVERT_BUTTONS.map($).filter(Boolean);
+btns.forEach(b => { b.disabled = true; });
 $("convstate").textContent = "转换中…";
 logLine(log, `[任务] 目标=${target} 文件/目录数=${S.sel.size}`, "dim");
 try {
@@ -53,5 +62,10 @@ try {
   }
 } catch (e) { logLine(log, "请求失败: " + e, "err"); }
 $("convstate").textContent = "完成";
-btn.disabled = false;
-};
+btns.forEach(b => { b.disabled = false; });
+}
+
+for (const id of CONVERT_BUTTONS) {
+  const b = $(id);
+  if (b) b.onclick = startConvert;
+}

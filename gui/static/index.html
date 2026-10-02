@@ -145,7 +145,10 @@
   <!-- ⑤ 已选文件（同在最下一层） -->
   <section data-el="sec-selected">
     <h2>📋 已选文件 <span id="selcount" class="dim"></span>
-      <button id="clear" class="push-right">清空</button></h2>
+      <!-- 选完就地能转换，不用滚回上面的「转换选项」栏（261002 七次·用户要求） -->
+      <button id="convert2" class="primary" data-el="btn-convert-2"
+              title="按上面「转换选项」里当前的目标格式与设置开始转换（与上面那个按钮是同一个动作）">🚀 开始转换</button>
+      <button id="clear">清空</button></h2>
     <ul id="selected"></ul>
     <details>
       <summary>或手动粘贴文件路径（每行一个）</summary>

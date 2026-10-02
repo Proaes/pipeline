@@ -104,6 +104,8 @@ label { white-space:nowrap; }
 .sel-item .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sel-item .rm { margin-left:auto; padding:0 4px; border:none; background:none; color:var(--err); cursor:pointer; }
 details { margin-top:8px; }
+/* 已选文件里的转换按钮（261002 七次）：靠右站，前面自动撑开，别挤着「清空」 */
+#convert2 { margin-left:auto; }
 details summary { cursor:pointer; color:#4b5563; }
 details textarea { width:100%; margin-top:6px; font-family:Consolas, "Courier New", monospace; font-size:13px; }
 details #addpaths { margin-top:6px; }
