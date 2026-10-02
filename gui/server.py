@@ -383,6 +383,9 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
             cmd += ["--model", model["id"]]
         if tts_engine == "qwen" and model and model["qwen_model"]:
             cmd += ["--qwen-model", model["qwen_model"]]
+        if tts_engine == "qwen" and model and model.get("qwen_ckpt"):
+            # 我们自己的微调权重（ckpt_epN.pt）叠在底座上；261003 起读稿可以走微调版
+            cmd += ["--qwen-ckpt", model["qwen_ckpt"]]
         if tts_engine == "gptsovits":
             cmd += ["--host", TTS_HOST, "--port", str(TTS_PORT)]
             if model and model["gpt_weights"]:
@@ -569,11 +572,14 @@ def _tts_engine_list() -> tuple[list[dict], str]:
             sov = _abs_from_registry(str(model.get("sovits_weights") or ""))
             onnx = _abs_from_registry(str(model.get("onnx_dir") or ""))
             qwen = _abs_from_registry(str(model.get("qwen_model") or ""))
+            qwen_ckpt = _abs_from_registry(str(model.get("qwen_ckpt") or ""))
             exists: bool | None
             if gpt or sov:
                 exists = all(Path(p).is_file() for p in (gpt, sov) if p)
             elif onnx or qwen:
                 exists = Path(onnx or qwen).exists()
+                if exists and qwen_ckpt:          # 微调权重也要在，否则界面别标「可用」
+                    exists = Path(qwen_ckpt).is_file()
             else:
                 exists = None
             out_models.append({
@@ -586,6 +592,7 @@ def _tts_engine_list() -> tuple[list[dict], str]:
                 "sovits_weights": sov,
                 "onnx_dir": onnx,
                 "qwen_model": qwen,
+                "qwen_ckpt": qwen_ckpt,
                 "exists": exists,
             })
         engines.append({

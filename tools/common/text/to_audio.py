@@ -27,6 +27,9 @@ text_to_audio.py — 文本转语音工具
     python tools/common/text/to_audio.py note.md --dry-run
     python tools/common/text/to_audio.py note.md --trim-tail-ms 60 --tail-pad 0.6
     python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c   # 读稿
+    python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c \\
+        --qwen-ckpt output/tts/qwen_ft/si/ckpt_ep3.pt
+        # 读稿走「祀」的 Qwen 微调权重（我们自己的 state dict，叠在底座上；261003 定版 = ep3）
     python tools/common/text/to_audio.py 稿子.txt --engine gptsovits --voice si_ft \\
         --gpt-weights output/tts/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt \\
         --sovits-weights output/tts/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth
@@ -655,6 +658,22 @@ class QwenEngine:
             attn_implementation=self.opts.qwen_attn)
         print(f"  加载模型             {time.time() - t0:6.2f}s")
 
+        # 微调权重：我们自己的 ckpt_epN.pt（只含可训参数）叠在底座上。
+        # 未命中的都是不可训部分（speaker_encoder 等），不是错误；打印出来便于发现「权重其实没加载」。
+        ckpt_path = (self.opts.qwen_ckpt or "").strip()
+        if ckpt_path:
+            cp = Path(ckpt_path)
+            if not cp.is_file():
+                raise ToolError(f"找不到 Qwen 微调权重: {cp}")
+            t0 = time.time()
+            blob = torch.load(cp, weights_only=False, map_location="cpu")
+            state = blob["state"] if isinstance(blob, dict) and "state" in blob else blob
+            missing, unexpected = self.model.model.load_state_dict(state, strict=False)
+            ep = blob.get("epoch", "?") if isinstance(blob, dict) else "?"
+            print(f"  载入微调权重         {time.time() - t0:6.2f}s"
+                  f"  ({cp.name}｜epoch {ep}｜{len(state)} 个张量｜"
+                  f"未命中 {len(missing)}（不可训部分）｜多余 {len(unexpected)}）")
+
         # 参考音频的编码（ref_code + 说话人向量）在这里一次做完，之后逐句复用；
         # 没给逐字文本时只能走 x_vector_only_mode（只用音色向量，丢掉 ICL 条件）。
         ref_text = (self.voice.get("prompt_text") or "").strip()
@@ -991,6 +1010,43 @@ def draw_paths(base: Path, n: int) -> list[Path]:
     return out
 
 
+def screen_draws(outs: list[Path], src: Path, opts: argparse.Namespace) -> None:
+    """抽卡自动筛：这条链路最贵的失败模式是「重复 / 失控生成」，特征是**时长明显超长**
+    （261003 实测：2.29 s 的一句被生成成 31.92 s，撞在生成上限上；而正常发与真人的
+    时长差都在 ±30% 以内）。
+
+    按字数估一条上限（`字数 / 语速 × 倍数`，再加句间静音），超限的那发**改名加 `_rej` 标记**
+    并在结尾汇总 —— 免得把垃圾发当成品听或交付。判据只看时长，不用再加载模型，四种引擎通用。
+    """
+    text = read_text(src)
+    if not opts.raw:
+        text = md_to_speakable(text)
+    chunks = split_sentences(text, opts.max_chars, opts.min_chars)
+    chars = sum(len(c) for c in chunks)
+    if not chars:
+        return
+    expect = chars / max(0.5, opts.screen_rate) + max(0, len(chunks) - 1) * DEFAULT_GAP
+    limit = expect * max(1.0, opts.screen_factor)
+    print(f"\n[筛发] {chars} 字 / {len(chunks)} 句 ⇒ 预期约 {expect:.1f}s，上限 {limit:.1f}s")
+    kept, rejected = [], []
+    for p in outs:
+        dur = probe_duration(p)
+        if dur > limit and dur - expect > 8.0:
+            new = p.with_name(f"{p.stem}_rej_{dur:.0f}s{p.suffix}")
+            try:
+                p.rename(new)
+                rejected.append((new, dur))
+                print(f"  ⚠ 疑似失控：{p.name} {dur:.1f}s（预期 {expect:.1f}s）→ 改名为 {new.name}")
+            except OSError as exc:                                   # noqa: BLE001
+                rejected.append((p, dur))
+                print(f"  ⚠ 疑似失控：{p.name} {dur:.1f}s（改名失败，请看时长自行判断：{exc}）")
+        else:
+            kept.append(p)
+    print(f"  合格 {len(kept)} 发" + (f"，疑似失控 {len(rejected)} 发（文件名带 _rej）" if rejected else ""))
+    if not kept:
+        print("  [注意] 这一批全被判为疑似失控：建议整批重抽，别硬用")
+
+
 def collect_texts(input_dir: Path, recursive: bool) -> list[Path]:
     """收集文本文件。"""
     files: list[Path] = []
@@ -1027,6 +1083,13 @@ def main() -> None:
                              "同一段文本多抽几发挑最好（这链路的解码是随机的）")
     parser.add_argument("--count", type=int, default=1, metavar="N",
                         help="一次生成 N 个版本（N>1 时自动走抽卡命名 <名>_d01…，便于并排挑最好的）[默认: 1]")
+    parser.add_argument("--screen", action="store_true",
+                        help="抽卡自动筛：按「字数 → 预期时长」算上限，超限的那发改名加 `_rej` 标记"
+                             "（261003 实测这链路会失控生成，2.29 s 的句子能出 31.92 s；建议配 --count 用）")
+    parser.add_argument("--screen-rate", type=float, default=5.5,
+                        help="预期语速（字/秒），只用来估上限 [默认: 5.5]")
+    parser.add_argument("--screen-factor", type=float, default=2.5,
+                        help="超过「预期 × 该倍数」且长出 8 秒以上 ⇒ 判为疑似失控 [默认: 2.5]")
     parser.add_argument("--check", action="store_true", help="仅检查环境")
     parser.add_argument("--list-voices", action="store_true", help="列出可用音色")
     parser.add_argument("--register", metavar="音色名",
@@ -1060,6 +1123,9 @@ def main() -> None:
                    help="随机种子（gptsovits / qwen）[默认: -1 随机]")
     g.add_argument("--qwen-model", default=None,
                    help=f"Qwen3-TTS 模型目录 [默认: 环境变量 QWEN_TTS_MODEL 或 {DEFAULT_QWEN_MODEL}]")
+    g.add_argument("--qwen-ckpt", default=None,
+                   help="Qwen 微调权重（本项目的 ckpt_epN.pt：只含可训参数的 state dict，"
+                        "叠加到 --qwen-model 的底座上；命中/未命中/多余张量数会打印出来）")
     g.add_argument("--qwen-device", default=None,
                    help="Qwen 推理设备 [默认: 有 CUDA 用 cuda:0，否则 cpu]")
     g.add_argument("--qwen-attn", default=DEFAULT_QWEN_ATTN,
@@ -1210,11 +1276,16 @@ def main() -> None:
                   f"（加 -f 覆盖，或加 --draw／--count 每跑一次出新文件）")
             sys.exit(0)
         all_ok = True
+        made: list[Path] = []
         for i, out_p in enumerate(outs, 1):
             if len(outs) > 1:
                 print(f"── 版本 {i}/{len(outs)}：{out_p.name}")
             if not process_one(input_path, out_p, opts, voice):
                 all_ok = False
+            elif out_p.exists():
+                made.append(out_p)
+        if opts.screen and made and not opts.dry_run:
+            screen_draws(made, input_path, opts)
         sys.exit(0 if all_ok else 1)
 
     # ── 批量 ──

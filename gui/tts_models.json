@@ -49,9 +49,16 @@
       "voice": "si_c",
       "models": [
         {
+          "id": "si-qwen-ep3",
+          "label": "祀-Q（Qwen 微调 ep3）",
+          "note": "祀 的 Qwen3-TTS 微调第 3 轮（output/tts/qwen_ft/si/ckpt_ep3.pt）叠在官方 0.6B Base 上；261003 定版选 ep3 —— 续训的 ep5/ep8 实测有 2/8 格生成失控",
+          "qwen_model": "D:/tools/qwen3tts/Qwen3-TTS-12Hz-0.6B-Base",
+          "qwen_ckpt": "output/tts/qwen_ft/si/ckpt_ep3.pt"
+        },
+        {
           "id": "qwen-base",
           "label": "Qwen3-TTS-0.6B-Base（原版，零样本）",
-          "note": "只有官方底座：0.6B 的微调已暂缓，所以这里**没有**任何微调版可放",
+          "note": "只有官方底座、不叠任何微调权重；用来和上面那条微调版对照",
           "qwen_model": "D:/tools/qwen3tts/Qwen3-TTS-12Hz-0.6B-Base"
         }
       ]
