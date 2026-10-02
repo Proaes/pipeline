@@ -30,18 +30,21 @@ lint:  "只检查 md 笔记写法（不改源文件）",
 image: "选「含图片的目录」批量 OCR（需 Ollama + qwen2.5vl）",
 audio: "md/txt → 语音（默认 GPT-SoVITS 微调，可切 GENIE；长文自动切句）",
 };
+const TARGET_IDS = ["pdf", "tex", "json", "md", "docx", "lint", "image", "audio"];
 const PPT_NOTE = "；.ppt 会先转 .pptx（需本机 PowerPoint 或 WPS）";
 export const IMG_EXTS = new Set(["jpg","jpeg","png","bmp","webp","tiff","tif","gif"]);
 
 export function currentTarget() { return document.querySelector("input[name=target]:checked").value; }
 export function isImageMode() { return currentTarget() === "image"; }
 export function okExts() { return TARGET_EXTS[currentTarget()] || new Set(); }
+/** 每行说明文字写进「该行自己的」第二列 span（index.html 里 id = targethint_<目标>） */
 export function updateTargetHint() {
-const h = $("targethint");
-if (!h) return;
-const t = currentTarget();
-const note = (t !== "image" && (TARGET_EXTS[t] || new Set()).has("ppt")) ? PPT_NOTE : "";
-h.textContent = "ℹ " + (TARGET_HINTS[t] || "") + note;
+TARGET_IDS.forEach(t => {
+  const el = $("targethint_" + t);
+  if (!el) return;
+  const note = (t !== "image" && (TARGET_EXTS[t] || new Set()).has("ppt")) ? PPT_NOTE : "";
+  el.textContent = (TARGET_HINTS[t] || "") + note;
+});
 }
 
 /** 图片模式只选目录，不选文件；其余模式看当前目标的扩展名白名单。 */

@@ -19,19 +19,24 @@
     <div class="opt-cols">
       <div class="opt-col">
         <h3 class="col-title">目标格式</h3>
-        <!-- 8 个选项一列竖排，说明文字摆在它右侧 -->
-        <div class="target-wrap">
-          <div class="target-list">
-            <label><input type="radio" name="target" value="pdf" checked> <span class="t-icon">📕</span>PDF</label>
-            <label><input type="radio" name="target" value="tex"> <span class="t-icon">📐</span>TeX</label>
-            <label><input type="radio" name="target" value="json"> <span class="t-icon">📋</span>JSON</label>
-            <label><input type="radio" name="target" value="md"> <span class="t-icon">📝</span>MD</label>
-            <label><input type="radio" name="target" value="docx"> <span class="t-icon">📘</span>DOCX</label>
-            <label><input type="radio" name="target" value="lint"> <span class="t-icon">🔍</span>lint 检查</label>
-            <label><input type="radio" name="target" value="image"> <span class="t-icon">🖼️</span>图片→MD (OCR)</label>
-            <label><input type="radio" name="target" value="audio"> <span class="t-icon">🎵</span>文本→语音 (TTS)</label>
-          </div>
-          <div class="target-hint"><span class="dim" id="targethint"></span></div>
+        <!-- 8 个选项一列竖排；说明文字是**每一行自己的第二列**（正右方对齐），不再挤在列表旁边 -->
+        <div class="target-list">
+          <label class="t-radio" for="tg-pdf"><input type="radio" id="tg-pdf" name="target" value="pdf" checked> <span class="t-icon">📕</span>PDF</label>
+          <span class="target-hint dim" id="targethint_pdf"></span>
+          <label class="t-radio" for="tg-tex"><input type="radio" id="tg-tex" name="target" value="tex"> <span class="t-icon">📐</span>TeX</label>
+          <span class="target-hint dim" id="targethint_tex"></span>
+          <label class="t-radio" for="tg-json"><input type="radio" id="tg-json" name="target" value="json"> <span class="t-icon">📋</span>JSON</label>
+          <span class="target-hint dim" id="targethint_json"></span>
+          <label class="t-radio" for="tg-md"><input type="radio" id="tg-md" name="target" value="md"> <span class="t-icon">📝</span>MD</label>
+          <span class="target-hint dim" id="targethint_md"></span>
+          <label class="t-radio" for="tg-docx"><input type="radio" id="tg-docx" name="target" value="docx"> <span class="t-icon">📘</span>DOCX</label>
+          <span class="target-hint dim" id="targethint_docx"></span>
+          <label class="t-radio" for="tg-lint"><input type="radio" id="tg-lint" name="target" value="lint"> <span class="t-icon">🔍</span>lint 检查</label>
+          <span class="target-hint dim" id="targethint_lint"></span>
+          <label class="t-radio" for="tg-image"><input type="radio" id="tg-image" name="target" value="image"> <span class="t-icon">🖼️</span>图片→MD (OCR)</label>
+          <span class="target-hint dim" id="targethint_image"></span>
+          <label class="t-radio" for="tg-audio"><input type="radio" id="tg-audio" name="target" value="audio"> <span class="t-icon">🎵</span>文本→语音 (TTS)</label>
+          <span class="target-hint dim" id="targethint_audio"></span>
         </div>
       </div>
 
@@ -52,7 +57,11 @@
           <div class="opt-row">语音引擎：<select id="tts_engine">
             <option value="gptsovits" selected>GPT-SoVITS 微调（音质最好，需先起服务）</option>
             <option value="genie">GENIE（纯 CPU，零显存，无需服务）</option>
+            <option value="qwen">Qwen3-TTS 零样本克隆（音质最好但慢，RTF≈4）</option>
           </select></div>
+          <div class="opt-row">模型：<select id="tts_model" data-el="sel-tts-model"><option value="">（加载中…）</option></select>
+            <button id="ttsmodelapply" title="把上面选的权重热切到正在跑的服务上（只切权重，不重启服务）">⟳ 切到该模型</button></div>
+          <div class="opt-row"><span class="dim" id="tts_model_note"></span></div>
           <div class="opt-row">音色：<select id="tts_voice"><option value="">（默认）</option></select></div>
           <div class="opt-row">音频格式：<select id="tts_format">
             <option value="mp3">mp3</option>

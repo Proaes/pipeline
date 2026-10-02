@@ -36,14 +36,13 @@ h3.col-title { margin:0 0 8px; font-size:13px; font-weight:600; color:#4b5563; }
 /* ── 转换选项：左列目标格式 / 右列引擎与模型 ── */
 .opt-cols { display:grid; grid-template-columns: minmax(0,0.85fr) minmax(0,1.15fr); gap:20px; }
 .opt-col { min-width:0; }
-/* 8 个目标格式一列竖排；说明文字（#targethint）摆在它右侧 */
-.target-wrap { display:grid; grid-template-columns: auto minmax(0,1fr); gap:14px; align-items:start; }
-.target-list { display:grid; grid-template-columns: minmax(0,1fr); gap:5px; }
-.target-list label { display:flex; align-items:center; gap:6px; padding:5px 8px; cursor:pointer;
-                     border:1px solid var(--line); border-radius:8px; background:#fff; }
-.target-list label:hover { background:var(--hover-bg); }
-.target-list label:has(input:checked) { background:var(--sel-bg); border-color:var(--focus); }
-.target-hint { min-width:0; padding-top:3px; line-height:1.7; }
+/* 8 个目标格式一列竖排；说明文字是**每一行自己的第二列** —— 选中哪一行，说明就在那一行的正右方 */
+.target-list { display:grid; grid-template-columns: auto minmax(0,1fr); gap:5px 14px; align-items:start; }
+.target-list .t-radio { display:flex; align-items:center; gap:6px; padding:5px 8px; cursor:pointer;
+                        border:1px solid var(--line); border-radius:8px; background:#fff; }
+.target-list .t-radio:hover { background:var(--hover-bg); }
+.target-list .t-radio:has(input:checked) { background:var(--sel-bg); border-color:var(--focus); }
+.target-hint { min-width:0; padding-top:6px; line-height:1.7; }
 .t-icon { width:20px; text-align:center; flex:none; }
 .opt-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 .opt-bottom { border-top:1px solid var(--line); margin-top:12px; padding-top:12px; }
@@ -119,13 +118,23 @@ details #addpaths { margin-top:6px; }
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; }
   .opt-cols { grid-template-columns: 1fr; }
-  .target-wrap { grid-template-columns: 1fr; }   /* 说明文字改到目标格式下方，免得挤成一竖条 */
+  /* 目标格式：说明只留选中那一行（其余隐藏），免得 8 条说明挤成一竖条 */
   .target-list { grid-template-columns: 1fr; }
+  .target-list:has(.t-radio:has(input[value=pdf]:checked)) #targethint_pdf,
+  .target-list:has(.t-radio:has(input[value=tex]:checked)) #targethint_tex,
+  .target-list:has(.t-radio:has(input[value=json]:checked)) #targethint_json,
+  .target-list:has(.t-radio:has(input[value=md]:checked)) #targethint_md,
+  .target-list:has(.t-radio:has(input[value=docx]:checked)) #targethint_docx,
+  .target-list:has(.t-radio:has(input[value=lint]:checked)) #targethint_lint,
+  .target-list:has(.t-radio:has(input[value=image]:checked)) #targethint_image,
+  .target-list:has(.t-radio:has(input[value=audio]:checked)) #targethint_audio { display:block; }
+  .target-list > .target-hint { display:none; padding:0 2px 2px; }
 }
 
 /* ── 用户 261002 四条要求的落点 ──
    1) 默认全部展开 / 折叠失效 → `.tree-children.collapsed{display:none}`（箭头态 `.tree-arrow.expanded`）
    2) sec-browse / sec-selected 放最下一层 → main 两栏 grid，两块排在 DOM 最后（index.html ④⑤）
    3) sec-options 两列 → `.opt-cols`：左 `.target-list`（单选＋格式图标），右 引擎 / 模型 / 提前拉起
-   3b) 目标格式 8 项改「一列竖排 + 说明文字在右侧」→ `.target-wrap`（`.target-list` 单列 + `.target-hint`）
+   3b) 目标格式 8 项改「一列竖排 + 说明文字在右侧」→ `.target-list` 两列栅格，
+       每行 = 左单选 `.t-radio` + 右说明 `.target-hint`（261002 二次：要的是**该行正右方**）
    4) 日志复制 + 下载 → 两个按钮挂在日志 h2 右侧（`.h2-tools`），功能在 modules/log.js   */
