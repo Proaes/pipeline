@@ -1,0 +1,122 @@
+/* ════════════════════════════════════════════════════════════════════
+   pipeline 界面 · 元素示例页（静态）的样式
+   —— 只服务于 docs/mockup.html：把「界面里有哪些元素、各自什么状态」摆清楚，
+      方便按 data-el 名字下设计指令。这套样式不是最终设计，也不影响 gui/static/app.css。
+   零外部依赖：没有一个 @import / url(http...) / 字体文件，双击本地打开即可。
+   ════════════════════════════════════════════════════════════════════ */
+
+:root{
+  --bg:#f5f6f8; --card:#fff; --line:#e2e5ea; --accent:#3b82f6;
+  --ok:#16a34a; --err:#dc2626; --warn:#e08b00; --muted:#9ca3af;
+  --sel-bg:#e8f0fe; --hover-bg:#f0f4ff; --focus:#b6d4fe;
+  --dash:#c3c9d4; --chip:#eef2ff; --chip-line:#c7d2fe; --chip-fg:#3730a3;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:#1f2937;
+     font:14px/1.6 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;}
+.mk-page{max-width:1120px;margin:0 auto;padding:0 20px 60px;}
+
+/* ── 页头：说明 + 怎么下指令 ── */
+.mk-top{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:16px 18px;margin:18px 0;}
+.mk-top h1{margin:0 0 6px;font-size:20px;}
+.mk-top .mk-sub{color:#6b7280;font-size:13px;margin:0 0 12px;}
+.mk-howto{background:#fbfcff;border:1px solid var(--chip-line);border-radius:10px;padding:10px 14px 10px 32px;margin:0 0 12px;}
+.mk-howto li{margin:3px 0;}
+.mk-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#6b7280;}
+.mk-legend b{color:#374151;}
+
+/* ── 卡片与卡片头 ── */
+.mk-card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+         padding:14px 18px 16px;margin:0 0 18px;}
+.mk-cardhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+             margin:0 0 4px;padding-bottom:10px;border-bottom:1px solid var(--line);}
+.mk-cardhead h2{margin:0;font-size:16px;}
+.mk-cardsub{color:#6b7280;font-size:12px;margin:8px 0 4px;}
+
+/* ── 标注：名字 chip + 中文说明 ── */
+.mk-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+        padding:7px 0;border-bottom:1px dashed #eef0f4;}
+.mk-row:last-child{border-bottom:none;}
+.mk-anno{font-size:12px;color:#6b7280;}
+.mk-anno b{font-family:Consolas,"Courier New",monospace;font-weight:600;
+           background:var(--chip);border:1px solid var(--chip-line);color:var(--chip-fg);
+           border-radius:6px;padding:1px 6px;margin-right:6px;}
+.mk-tag{font-family:Consolas,"Courier New",monospace;font-size:12px;
+        background:var(--chip);border:1px solid var(--chip-line);color:var(--chip-fg);
+        border-radius:6px;padding:2px 7px;}
+.mk-cond{font-size:12px;color:#92400e;background:#fff7ed;border:1px solid #fed7aa;
+         border-radius:999px;padding:1px 9px;white-space:nowrap;}
+.mk-condbox{border:1px dashed #fdba74;border-radius:10px;padding:4px 12px 10px;margin:10px 0 4px;background:#fffdf8;}
+
+/* ── 生产界面的页头（示例页里照着摆一条） ── */
+.mk-prodhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+             border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fcfcfd;}
+.mk-prodtitle{font-size:18px;font-weight:700;}
+
+/* ── 占位空框：真正界面这里是动态内容 ── */
+.mk-ph{border:2px dashed var(--dash);border-radius:10px;background:#fcfcfd;
+       display:flex;flex-direction:column;align-items:center;justify-content:center;
+       gap:6px;color:var(--muted);font-size:13px;text-align:center;padding:10px;}
+.mk-ph .mk-ph-ico{font-size:20px;opacity:.65;}
+.mk-ph-tree{height:230px;}
+.mk-ph-sel{height:130px;}
+.mk-ph-log{height:170px;}
+.mk-ph-notes{height:150px;}
+.mk-ph-watch{height:120px;}
+
+/* ── 表单控件（照现在界面的样子给一套完整样式） ── */
+button{font:inherit;padding:6px 12px;border:1px solid var(--line);border-radius:8px;
+       background:#fff;cursor:pointer;color:#1f2937;}
+button:hover{background:var(--hover-bg);}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+button.primary:hover{filter:brightness(1.05);}
+button:disabled{opacity:.5;cursor:not-allowed;}
+input[type=text],input[type=number],select,textarea{
+  font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#1f2937;}
+input[type=text]:focus,input[type=number]:focus,select:focus,textarea:focus{
+  outline:2px solid var(--focus);outline-offset:0;border-color:var(--focus);}
+input[readonly]{background:#f3f4f6;color:#4b5563;}
+textarea{width:100%;resize:vertical;font-family:Consolas,"Courier New",monospace;font-size:13px;}
+input[type=radio],input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0 4px 0 0;vertical-align:-2px;}
+label{white-space:nowrap;}
+
+/* ── 文件树 / 已选列表：示例页里是空框，这里只给框内文字排版 ── */
+.mk-ph-tree .mk-ph-ico,.mk-ph-sel .mk-ph-ico,.mk-ph-log .mk-ph-ico,.mk-ph-watch .mk-ph-ico{line-height:1;}
+
+/* ── 状态栏 / 提示行 / 日志行 ── */
+.dim{color:var(--muted);font-size:12px;font-weight:400;}
+.status{font-size:12px;}
+.st-down{color:var(--warn);}
+.st-starting{color:var(--warn);}
+.st-ready{color:var(--ok);}
+.st-error{color:var(--err);}
+.st-idle{color:#6b7280;}
+.st-dim{color:var(--muted);}
+.mk-line{font-family:Consolas,"Courier New",monospace;font-size:12.5px;padding:1px 0;}
+.mk-line.ok{color:var(--ok);}
+.mk-line.err{color:var(--err);}
+.mk-line.dim{color:var(--muted);}
+.mk-logbox{border:1px solid var(--line);border-radius:8px;background:#fcfcfd;padding:8px 10px;}
+
+/* ── 状态品种（纯样式示例，不是真功能） ── */
+.mk-demo-hover{background:var(--hover-bg);}          /* 模拟 :hover 的样子 */
+.mk-spin{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px;
+         border:2px solid #c7d2fe;border-top-color:var(--accent);border-radius:50%;
+         animation:mk-rotate 900ms linear infinite;}
+@keyframes mk-rotate{to{transform:rotate(360deg);}}
+.mk-progress{height:10px;border-radius:999px;background:#eef1f6;border:1px solid var(--line);
+             overflow:hidden;width:320px;}
+.mk-progress > i{display:block;height:100%;width:42%;background:var(--accent);}
+
+/* ── 元素总览表 ── */
+.mk-table{width:100%;border-collapse:collapse;font-size:13px;}
+.mk-table th,.mk-table td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top;}
+.mk-table th{background:#f9fafb;font-size:12px;color:#4b5563;}
+.mk-table code{font-family:Consolas,"Courier New",monospace;font-size:12px;
+               background:var(--chip);border:1px solid var(--chip-line);color:var(--chip-fg);
+               border-radius:5px;padding:0 5px;}
+
+/* ── 用户批注区 ── */
+.mk-notes-hint{font-size:12px;color:#6b7280;margin:6px 0 8px;}
+.mk-foot{color:var(--muted);font-size:12px;text-align:center;padding:8px 0 0;}
