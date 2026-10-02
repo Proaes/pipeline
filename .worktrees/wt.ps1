@@ -37,6 +37,9 @@ $script:BaseOnlyShared = @('TASKS.md', 'INTERFACES.md', 'ALIGN.md', '_templates'
 # 所以 base 不能直接检出 master；合并都落在 wt/integration，最后由 fold 折回 master。
 $script:IntegrationBranch = 'wt/integration'
 
+# clean 撤销登记时会往这里记「需要提交协调层的仓库」，最后统一提交一次
+$script:SharedDirtyRoots = @()
+
 # 本地身份，只用于本仓库提交，不碰全局 ~/.gitconfig
 $script:GitUserName = 'worktree-agent'
 $script:GitUserEmail = 'worktree-agent@localhost'
@@ -235,8 +238,7 @@ function Get-Tasks { param([string]$Repo, [string]$Base)
 
 # ============================ 创建 ============================
 
-function Create-BaseWorktree { param([string]$Repo, [string]$Base)
-  $basePath = Join-Path (Join-Path $Repo '.worktrees') 'base'
+function Create-BaseWorktree { param([string]$Repo, [string]$Base)  $basePath = Join-Path (Join-Path $Repo '.worktrees') 'base'
   if (Test-Path -LiteralPath $basePath) {
     Write-Info ("base 工作树已存在：{0}" -f $basePath)
     return $basePath
@@ -409,6 +411,30 @@ __pycache__/
   return $true
 }
 
+# base 工作树停在集成分支上；主分支后来改过 .gitignore（放行协调层）等文件时，
+# 集成分支必须跟上 —— 否则 base 里那份旧 .gitignore 会把 TASKS.md 继续忽略掉，
+# 导致「spawn 写进去的行在 base 里 add 不上、commit 报 nothing to commit」（实测踩到）。
+function Sync-BaseWorktree { param([string]$Repo, [string]$Base)
+  $basePath = Join-Path (Join-Path $Repo '.worktrees') 'base'
+  if (-not (Test-Path -LiteralPath $basePath)) { return }
+  $dirty = @(git -C $basePath status --porcelain 2>$null).Count
+  if ($dirty -gt 0) {
+    Write-Warn2 ("base 工作树有 {0} 处未提交改动，跳过自动同步（先提交或清理）" -f $dirty)
+    return
+  }
+  $on = [string](git -C $basePath symbolic-ref --short HEAD 2>$null)
+  $on = $on.Trim()
+  if ($on -ne $script:IntegrationBranch) { return }
+  $behind = (git -C $Repo rev-list --count ("{0}..{1}" -f $script:IntegrationBranch, $Base)).Trim()
+  if ($behind -eq '0') { return }
+  $r = Invoke-Git -Repo $basePath -Arguments @('merge', '--no-edit', $Base)
+  if ($r.ExitCode -ne 0) {
+    Write-Warn2 ("集成分支未能自动跟上 {0}（{1}）—— 手动处理：在 base 工作树里 git merge {0}" -f $Base, $r.Output)
+    return
+  }
+  Write-Ok ("集成分支已跟上 {0}（{1} 个提交）" -f $Base, $behind)
+}
+
 function Invoke-Init { param([string]$Repo, [string]$Base, [switch]$NoBaseWorktree)
   Write-Step ('初始化工作树控制台：{0}' -f $Repo)
   Set-LocalGitIdentity $Repo
@@ -417,13 +443,23 @@ function Invoke-Init { param([string]$Repo, [string]$Base, [switch]$NoBaseWorktr
   foreach ($f in $scaffold.Created) { Write-Info ('新建 ' + (Join-Path '_shared' $f)) }
   $changed = Ensure-Gitignore $Repo
   $null = Ensure-RepoArtifactIgnores -Repo $Repo
+  $null = Create-BaseWorktree -Repo $Repo -Base $Base
+  Sync-BaseWorktree -Repo $Repo -Base $Base
+
+  # 协调层的「真源」在 base 工作树里。主仓那份 scaffold 只是模具：
+  # 两者同时存在时以 base 为准，主仓那份要撤掉，否则 spawn 写一份、clean 撤另一份。
+  $mainShared = Join-Path (Join-Path $Repo '.worktrees') '_shared'
+  $baseShared = Join-Path (Join-Path $Repo '.worktrees\base') '.worktrees/_shared'
+  if ((Test-Path -LiteralPath $mainShared) -and (Test-Path -LiteralPath $baseShared)) {
+    Remove-Item -LiteralPath $mainShared -Recurse -Force
+    Write-Info '已撤掉主仓里的重复协调层（真源 = base 工作树那份）'
+  }
+
   if ($NoBaseWorktree) {
     Write-Info '按 -NoBaseWorktree：本轮不建 base 工作树、不建任何分支（协调层先就位，等你真要并行时再建）'
-  } else {
-    $null = Create-BaseWorktree -Repo $Repo -Base $Base
   }
   Write-Step '完成'
-  Write-Info ('共享协调层：{0}' -f $scaffold.Path)
+  Write-Info ('共享协调层（真源）：{0}' -f (Get-SharedRoot $Repo))
   Write-Info '下一步：spawn 之前先把跨分支约定写进 _shared/INTERFACES.md 并在 base 里提交'
   return [pscustomobject]@{ GitignoreChanged = $changed; Shared = $scaffold.Path }
 }
@@ -480,13 +516,17 @@ function Invoke-Spawn { param([string]$Repo, [string]$Base, [string]$Name, [stri
 
 - [$today] 开工：工作树与分支建好，基线 $headCommit。
 "@
-  Write-SharedFile -Repo $Repo -Relative (Join-Path 'tasks' ($Name + '.md')) -Content $card
+  # 任务卡与登记表必须落在同一处（Get-SharedRoot）—— 否则 spawn 写一处、clean 撤另一处
+  $cardPath = Join-Path (Get-SharedRoot $Repo) ('tasks/' + $Name + '.md')
+  $cardDir = Split-Path -Parent $cardPath
+  if (-not (Test-Path -LiteralPath $cardDir)) { $null = New-Item -ItemType Directory -Path $cardDir -Force }
+  Write-Utf8NoBom -Path $cardPath -Lines @($card)
 
   # 登记任务清单（写协调层真源那份；见 Get-SharedRoot）
   Add-TaskRow -Repo $Repo -Name $Name -Branch $Branch -Scope $Scope -Owner $Owner
 
   Add-OrderEntry -Repo $Repo -Name $Name
-  Write-Info ("任务卡：{0}" -f (Join-Path $Repo ('.worktrees/_shared/tasks/' + $Name + '.md')))
+  Write-Info ("任务卡：{0}" -f $cardPath)
   return [pscustomobject]@{ Name = $Name; Path = $path; Branch = $Branch; Base = $basePath; Commit = $headCommit }
 }
 
@@ -650,15 +690,35 @@ function Remove-TaskRow { param([string]$Repo, [string]$Name)
   if ($kept.Count -eq $lines.Count) { return }
   Write-Utf8NoBom -Path $path -Lines $kept
 
-  $top = [string](git -C (Split-Path -Parent $path) rev-parse --show-toplevel 2>$null)
-  if ($top) {
-    $top = $top.Trim()
-    $relPath = $path.Substring($top.Length).TrimStart('\', '/').Replace('\', '/')
-    Set-LocalGitIdentity $top
-    $null = git -C $top add -- $relPath 2>$null
-    $null = git -C $top commit -q -m ("chore(align): 撤销 {0} 的任务登记（工作树已清理）" -f $Name) 2>$null
+  # 任务卡也要一起收掉，否则 _shared/tasks/ 会攒一堆已完成任务的卡
+  $card = Join-Path (Split-Path -Parent $path) ('tasks/' + $Name + '.md')
+  if (Test-Path -LiteralPath $card) { Remove-Item -LiteralPath $card -Force }
+  # 提交不在这里做：clean 可能一次清多个任务，逐个提交会产生一串噪声提交。
+  # 登记到「待提交根目录」，由 Commit-SharedChanges 统一提交一次。
+  $sharedRoot = Split-Path -Parent $path
+  $top = [string](git -C $sharedRoot rev-parse --show-toplevel 2>$null)
+  if ($top) { $script:SharedDirtyRoots += $top.Trim() }
+  Write-Info ("已撤销登记行与任务卡：{0}" -f $Name)
+}
+
+# 在指定仓库里只提交这两个协调层路径（绝不用 git add -A：主仓可能有你正在写的东西），
+# 并且**不吞失败**：暂存为空或 commit 失败都要如实报出来。
+function Commit-SharedChanges { param([string]$Repo, [string]$Message)
+  $top = [string](git -C $Repo rev-parse --show-toplevel 2>$null)
+  if (-not $top) { return }
+  $top = $top.Trim()
+  $rel = '.worktrees/_shared'
+  $st = [string](git -C $top status --porcelain -- $rel 2>$null)
+  if (-not $st.Trim()) { return }
+  Set-LocalGitIdentity $top
+  $null = git -C $top add -A -- $rel 2>$null
+  $staged = @(git -C $top diff --cached --name-only 2>$null)
+  if ($staged.Count -eq 0) {
+    Write-Warn2 ("{0} 下有改动但暂存不上 —— 多半是被 .gitignore 挡住了，检查 .worktrees 的忽略规则" -f $rel)
+    return
   }
-  Write-Info ("已在 TASKS.md 撤销任务行：{0}" -f $Name)
+  $out = git -C $top commit -q -m $Message 2>&1
+  if ($LASTEXITCODE -ne 0) { Write-Warn2 ("提交协调层失败：{0}" -f (($out | Out-String).Trim())) }
 }
 
 function Invoke-Merge { param([string]$Repo, [string]$Base, [string]$Name)
@@ -848,6 +908,9 @@ function Invoke-Clean { param([string]$Repo, [string]$Name, [switch]$Force)
   if (Test-Path -LiteralPath $orderPath) {
     $keep = @(Get-Content -LiteralPath $orderPath | Where-Object { $_.Trim() -and ($done -notcontains $_.Trim()) })
     Write-Utf8NoBom -Path $orderPath -Lines $keep
+  }
+  foreach ($root in ($script:SharedDirtyRoots | Select-Object -Unique)) {
+    Commit-SharedChanges -Repo $root -Message ("chore(align): 清理已回收任务的登记行与任务卡" )
   }
   $porcelain = (git -C $Repo worktree list --porcelain) -join "`n"
   foreach ($n in $done) {
