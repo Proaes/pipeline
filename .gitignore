@@ -38,3 +38,28 @@ __pycache__/
 # ============ 系统/临时 ============
 Thumbs.db
 *.tmp
+
+# ============ 多 agent 工作树（261002）============
+# .worktrees/ 下是「一棵工作树 = 一个 agent」的并行开发区，工作树本身绝不入库；
+# 只放行共享协调层（全体 agent 的对齐依据，靠提交留历史）与操作脚本。
+# 复用 260922 的教训：某目录被忽略后，`!` 放行不了它「内部子目录」里的东西 ——
+# 协调层四个文件直接挂在 _shared/ 这一层放行，光写 !/.worktrees/_shared/ 是不够的。
+/.worktrees/*
+!/.worktrees/README.md
+!/.worktrees/wt.ps1
+!/.worktrees/wt.cmd
+!/.worktrees/_shared/
+/.worktrees/_shared/*
+!/.worktrees/_shared/TASKS.md
+!/.worktrees/_shared/INTERFACES.md
+!/.worktrees/_shared/INBOX.md
+!/.worktrees/_shared/ALIGN.md
+!/.worktrees/_shared/tasks/
+/.worktrees/_shared/tasks/*
+!/.worktrees/_shared/tasks/*.md
+
+# ============ 测试时的生成物（261002）============
+# gui_tmp = jieba 词库缓存等运行期生成物（jieba.cache 曾达 8.83 MB），一律不入库
+test/gui_tmp/
+test/_*.mp3
+test/_*.wav
