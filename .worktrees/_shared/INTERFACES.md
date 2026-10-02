@@ -86,6 +86,40 @@
    探测真正挡住的是：①`uvicorn api_v2:APP` 那种「先绑端口、后导入模块」的起法；
    ②端口上根本不是这个服务/只是半启动的监听；③`/set_*_weights` 换权重那类运行中重载窗口。
 
+### 2.7 模型选择（261002 六次 · Lead 单人实现，不再分前端/后端两支）
+
+用户要求：**语音引擎下拉里要能选 qwen**、**要能分别选「微调模型」与「原模型」**、
+**引擎/模型名字后面要保留简要描述**。冻结如下（实现：`gui/server.py` + `gui/tts_models.json`
++ `gui/static/modules/ttsmodels.js`，无头改动 `gui/static/index.html`）：
+
+1. **真源 = `pipeline/gui/tts_models.json`**（进 git）。结构：
+   `{engines:[{id,label,summary,voice,models:[{id,label,note,engine?,voice?,
+   gpt_weights?,sovits_weights?,onnx_dir?,qwen_model?}]}]}`。路径可写相对 `pipeline/` 的相对路径
+   （后端补成绝对路径）或绝对路径。**代号规则 `<音色>-<引擎>`，首个代号 = `祀-G`**。
+   加模型只改这个文件，不动代码。
+2. **`GET /api/tts/models`** → `{ok, engines[], file, current, message?}`；每个 model 带
+   `{id,label,note,engine,voice,gpt_weights,sovits_weights,onnx_dir,qwen_model,exists}`。
+   `exists=false` 表示权重文件不在，界面把它置灰并写「⚠ 权重文件缺失」。
+   `current = {gpt,sovits,model,config} | null`：正在跑的服务**实际加载**的权重
+   （读 `output/tts/tmp/tts_infer_si.yaml` 的 custom 段再与注册表按绝对路径比对）；
+   服务没在跑 → `null`。**认不出就 `model:null`，不许猜**。
+3. **`POST /api/tts/model/apply`** body `{"id":"si-ft"}` → `{ok,id,label,engine,voice,
+   gpt_weights,sovits_weights,switched,steps[],message|error}`。把该模型的两条权重转发给
+   TTS 服务的 `/set_gpt_weights`、`/set_sovits_weights`（**绝对路径**，URL 编码），
+   **不重启服务**。约定：
+   - 服务没在跑 → `ok=true, switched=false` + 中性提示（**不是错误**：权重已在界面记下，
+     合成时会由 `to_audio.py` 顺带切）；
+   - 未知 id → `ok=false` + `error`；模型不属于 gptsovits → `ok=true, switched=false` + 说明；
+   - 转发失败 → `ok=false` + `steps` 里已成功的那些 + `error`。超时 `TTS_APPLY_TIMEOUT`（默认 180 s）。
+4. **合成时也要兑现选择**：`/api/convert` body 新增 `tts_model`（模型 id）。给了它就以它为准 ——
+   引擎取该模型的 `engine`、音色取该模型的 `voice`，`gptsovits` 再加
+   `--gpt-weights/--sovits-weights`（`to_audio.py` 在**合成前切一次**，`--dry-run` 不切、
+   连不上服务就报错不静默）。**不给 `tts_model` 时行为与 261002 之前完全一致**（向后兼容）。
+5. **`to_audio.py` 新增**：`--model <代号>`（只进日志，交接用）、`--gpt-weights`、`--sovits-weights`。
+6. **界面**：引擎下拉 3 条（`gptsovits` / `genie` / `qwen`），**引擎名与模型名后面的括号描述一律保留**；
+   模型下拉按当前引擎联动（引擎是主、模型是仆），名字下面那行显示模型 note + 引擎 summary +
+   「服务当前加载：XXX」。缺文件的模型置灰。
+
 ## 3. 命名与路径
 
 - 分支：`wt/<任务名>`；工作树：`.worktrees/<任务名>/`
