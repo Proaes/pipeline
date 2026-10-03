@@ -864,10 +864,79 @@ def env_check(opts: argparse.Namespace) -> None:
         print(f"  genie_tts       : 未安装 —— 当前解释器 {sys.executable}")
 
 
+def split_sentences_with_para(text: str, max_chars: int = DEFAULT_MAX_CHARS,
+                              min_chars: int = DEFAULT_MIN_CHARS) -> tuple[list[str], list[int]]:
+    """`split_sentences` 的结果 + 每句属于源稿的第几段（段落按空行分）。
+
+    与直接调 `split_sentences(text)` **完全等价**（同一套规则逐段跑，段内没有空行），
+    多出来的 `para_of` 只用来在段与段之间插更长的静音（`--para-gap`）——
+    诗体 / 分行写的稿子，行间的呼吸比句内的停顿重要得多。
+    """
+    chunks: list[str] = []
+    para_of: list[int] = []
+    for pi, para in enumerate(re.split(r"\n\s*\n", text)):
+        sub = split_sentences(para, max_chars, min_chars)
+        chunks.extend(sub)
+        para_of.extend([pi] * len(sub))
+    return chunks, para_of
+
+
+def file_sig(p) -> str:
+    """文件指纹（大小 + 修改秒），进缓存键：权重 / 参考音频换了就必须重抽。"""
+    try:
+        st = Path(p).stat()
+        return f"{st.st_size}-{int(st.st_mtime)}"
+    except OSError:
+        return "-"
+
+
+class SegCache:
+    """逐句缓存：`<根>/<公共键>/<句子指纹>.wav`。
+
+    公共键含引擎 / 音色 / 参考 / ckpt / 采样 / seed / **抽卡作用域**；
+    句子指纹只由**句文本**决定 ⇒ **同一句在「先跑前 6 句验证、再跑全篇」两次运行里命中同一个文件**，
+    验证那一遍不算白跑（早先我把整篇文本与输出文件名也塞进键里，那会让两次运行互不复用）。
+
+    抽卡作用域（`opts.draw_scope`）：`--count N` 或 `--draw` 时每一发各自一个作用域
+    （用输出文件名，天然唯一），否则统一 `single` —— 这样抽卡每发独立，
+    而**重跑同一发**或只 `--redo-lines` 几句时又全部秒过。
+    根目录默认取 `PIPELINE_TTS_SEG_CACHE` → `PIPELINE_TTS_TMPDIR/read_cache` → 系统临时目录，
+    所以在本项目里它落在 `output/tts/tmp/read_cache/`（持久，不会被每次运行的临时夹删掉）。
+    """
+
+    def __init__(self, root: Path | None, key: str):
+        self.dir = (Path(root) / key) if root else None
+        if self.dir is not None:
+            self.dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def default_root() -> Path | None:
+        env = os.environ.get("PIPELINE_TTS_SEG_CACHE")
+        root = Path(env) if env else Path(os.environ.get("PIPELINE_TTS_TMPDIR") or tempfile.gettempdir())
+        return root / "read_cache"
+
+    def path(self, text: str) -> Path | None:
+        if self.dir is None:
+            return None
+        return self.dir / (hashlib.sha1(text.encode("utf-8")).hexdigest()[:12] + ".wav")
+
+
 # ── 主流程 ────────────────────────────────────────────────────────
 def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
-              workdir: Path) -> list[tuple[str, Path]]:
-    """逐句合成，单句失败重试一次。返回 [(句子, 原始 wav)]，失败的不在列表里。"""
+              workdir: Path, cache: "SegCache | None" = None,
+              redo: frozenset = frozenset()) -> tuple[list[tuple[str, Path]], list[dict]]:
+    """逐句合成。返回 ([(句子, 原始 wav)], 逐句报告)。
+
+    长文本（几十上百句）在原来那套「整段拼完再用 `--screen` 看总时长」里有两个死穴：
+    ① 一句失控（本会话实测句级 5%～13%）就能毁掉整段，还得人耳回听定位；
+    ② 整段重抽一遍要十几分钟，而问题通常只在 1～2 句。
+    所以这里做三件事：
+      · **逐句筛**：`预期 = 字数 / 语速`；音频落在 `[字数/15, max(预期×retry_factor, 预期+4)]` 之外
+        就算可疑（太长 = 重复/失控，太短 = 语种或参考文本不对）；
+      · **就地重抽**：可疑就换一发重抽（`--retry-draws`，默认 3 次），抽到落在窗口内就停；
+        全都不合格时取最接近预期的一发并在报告里标红；
+      · **逐句缓存**：合格的一发落进 `SegCache`，重跑 / 只补几句时直接复用。
+    """
     engine = None
     if opts.engine == "genie":
         engine = GenieEngine(opts, voice)
@@ -883,15 +952,36 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     wavs: list[tuple[str, Path]] = []
+    report: list[dict] = []
     failed = 0
     total = len(chunks)
+    rate = max(0.5, opts.screen_rate)
     for i, chunk in enumerate(chunks, 1):
         out = raw_dir / f"{i:04d}.wav"
         preview = chunk if len(chunk) <= 26 else chunk[:26] + "…"
         print(f"  [{i}/{total}] {preview}")
         t0 = time.time()
 
-        for attempt in (1, 2):
+        expect = len(chunk) / rate
+        lo = max(0.3, len(chunk) / 15.0)                      # 快于 15 字/秒 = 垃圾音频
+        hi = max(expect * max(1.0, opts.retry_factor), expect + 4.0)
+        cpath = cache.path(chunk) if cache is not None else None
+        row = {"i": i, "chars": len(chunk), "expect": round(expect, 2), "text": chunk,
+               "draws": 0, "status": "ok", "source": ""}
+
+        if cpath is not None and cpath.is_file() and i not in redo:
+            shutil.copy2(cpath, out)
+            dur = probe_duration(out)
+            row.update(draws=0, source="缓存", dur=round(dur, 2))
+            if not (lo <= dur <= hi):
+                row["status"] = "可疑(缓存)"
+            wavs.append((chunk, out))
+            print(f"        {dur:5.2f}s（缓存，预期 {expect:.1f}s）")
+            report.append(row)
+            continue
+
+        best: tuple[float, float] | None = None                 # (是否合格, 时长)
+        for attempt in range(1, max(1, opts.retry_draws) + 2):
             try:
                 if engine is not None:      # genie / qwen：引擎实例已加载好
                     engine.synth(chunk, out)
@@ -899,29 +989,47 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
                     synth_gptsovits(chunk, out, opts, voice)
                 else:
                     synth_sapi(chunk, out, opts, voice)
-                break
             except ToolError as exc:
-                if attempt == 1:
+                if attempt <= max(1, opts.retry_draws) + 1:
                     print(f"        重试（{str(exc).splitlines()[0][:70]}）")
                     time.sleep(1.0)
-                else:
-                    print(f"        [失败] {str(exc)[:200]}")
-                    out = None
-        if out is not None and out.is_file():
-            # 兜底：语种标错（例如日语参考文本没给 --prompt-lang jp）时，
-            # 模型会静默产出一段极短的垃圾音频。快于 15 字/秒 就不可能正常。
+                    continue
+                print(f"        [失败] {str(exc)[:200]}")
+                out = None
+                break
             dur = probe_duration(out)
-            if dur < max(0.3, len(chunk) / 15.0):
+            ok = lo <= dur <= hi
+            row["draws"] = attempt
+            if ok:
+                best = (1.0, dur)
+                break
+            worse = "偏长（疑似失控）" if dur > hi else "偏短（疑似语种/参考文本不对）"
+            print(f"        第 {attempt} 发 {dur:.2f}s {worse}（预期 {expect:.1f}s，窗口 "
+                  f"{lo:.1f}–{hi:.1f}s）")
+            best = (0.0, dur) if best is None else (0.0, min(dur, best[1]) if dur > hi else best[1])
+
+        if out is not None and out.is_file():
+            dur = probe_duration(out)
+            row["dur"] = round(dur, 2)
+            row["source"] = "生成"
+            if best is not None and best[0] < 1.0:
+                row["status"] = "可疑(已重抽仍不合格)"
+                print(f"        [警告] 抽了 {row['draws']} 发都不在窗口内，取了 {dur:.2f}s"
+                      f"（预期 {expect:.1f}s）—— 这一句建议 --redo-lines {i} 再抽，或改文本")
+            if dur < lo:
                 print(f"        [警告] 只合成出 {dur:.2f}s（{len(chunk)} 字），短得离谱 ——"
                       f" 多半是参考音频的语种或逐字文本不对，检查 --prompt-lang / meta 的 ref_lang")
+            if cpath is not None and row["status"] == "ok":
+                shutil.copy2(out, cpath)                         # 只有合格发才进缓存
             wavs.append((chunk, out))
             print(f"        {time.time() - t0:5.2f}s")
         else:
             failed += 1
+        report.append(row)
 
     if failed:
         print(f"  [警告] {failed}/{total} 句合成失败，已跳过")
-    return wavs
+    return wavs, report
 
 
 def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
@@ -931,16 +1039,35 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
     speakable = read_text(src)
     if not opts.raw:
         speakable = md_to_speakable(speakable)
-    chunks = split_sentences(speakable, opts.max_chars, opts.min_chars)
+    chunks, para_of = split_sentences_with_para(speakable, opts.max_chars, opts.min_chars)
     if not chunks:
         print("  [跳过] 洗掉 Markdown 标记后没有可朗读的文字")
         return False
-    print(f"  切句: {len(chunks)} 句，共 {sum(len(c) for c in chunks)} 字")
+    print(f"  切句: {len(chunks)} 句，共 {sum(len(c) for c in chunks)} 字"
+          + (f"，{max(para_of) + 1} 段" if para_of else ""))
 
     if opts.dry_run:
         for i, c in enumerate(chunks, 1):
             print(f"    {i:>3}. {c}")
         return True
+
+    # 逐句缓存的键：引擎 / 音色 / 参考 / ckpt / 采样 / seed / 抽卡作用域（句文本单独进文件名）
+    key = hashlib.sha1()
+    for part in (opts.engine, voice.get("name", ""), str(voice.get("prompt_wav", "")),
+                 file_sig(voice.get("prompt_wav")), voice.get("prompt_text", ""),
+                 opts.qwen_ckpt or "", file_sig(opts.qwen_ckpt) if opts.qwen_ckpt else "-",
+                 f"{opts.qwen_temp}/{opts.qwen_top_p}/{opts.qwen_sub_temp}/{opts.qwen_max_new_tokens}",
+                 f"seed={opts.seed}", getattr(opts, "draw_scope", "single")):
+        key.update(str(part).encode("utf-8"))
+        key.update(b"|")
+    cache = None
+    if not opts.no_cache:
+        cache = SegCache(Path(opts.seg_cache) if opts.seg_cache else SegCache.default_root(),
+                         key.hexdigest()[:16])
+        print(f"  逐句缓存: {cache.dir}")
+    redo = frozenset(int(x) for x in opts.redo_lines.replace("，", ",").split(",") if x.strip().isdigit())
+    if redo:
+        print(f"  --redo-lines: 强制重抽第 {sorted(redo)} 句（其余走缓存）")
 
     # 临时工作目录：tempfile.mkdtemp 建出来的是 0o700，在沙箱里于其下再建子目录
     # 会被拒（WinError 5 拒绝访问），因此允许用环境变量指定一个普通权限的目录。
@@ -953,10 +1080,16 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
     else:
         workdir = Path(tempfile.mkdtemp(prefix="pipeline_tts_"))
     try:
-        pairs = synth_all(chunks, opts, voice, workdir)
+        pairs, report = synth_all(chunks, opts, voice, workdir, cache=cache, redo=redo)
         if not pairs:
             print("  [失败] 没有一句合成成功")
             return False
+
+        # 段与段之间用更长的静音（`--para-gap`；不给就与 `--gap` 相同 ⇒ 行为与以前一致）
+        para_gap = opts.gap if opts.para_gap is None else opts.para_gap
+        kept_idx = [r["i"] for r in report if "dur" in r]
+        gaps = [para_gap if para_of[kept_idx[k] - 1] != para_of[kept_idx[k - 1] - 1] else opts.gap
+                for k in range(1, len(kept_idx))]
 
         rate = DEFAULT_RATE
         print(f"  后处理 {len(pairs)} 段"
@@ -969,10 +1102,13 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
             shaped.append(dst)
 
         gap = workdir / "_gap.wav"
+        pgap = workdir / "_pgap.wav"
         head = workdir / "_head.wav"
         tail = workdir / "_tail.wav"
-        if opts.gap > 0 and len(shaped) > 1:
+        if opts.gap > 0 and any(g == opts.gap for g in gaps):
             make_silence(opts.gap, rate, gap)
+        if para_gap > 0 and abs(para_gap - opts.gap) > 1e-6 and any(g != opts.gap for g in gaps):
+            make_silence(para_gap, rate, pgap)
         if opts.head_pad > 0:
             make_silence(opts.head_pad, rate, head)
         if opts.tail_pad > 0:
@@ -982,8 +1118,8 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
         if opts.head_pad > 0:
             parts.append(head)
         for i, w in enumerate(shaped):
-            if i > 0 and opts.gap > 0:
-                parts.append(gap)
+            if i > 0 and gaps[i - 1] > 0:
+                parts.append(gap if abs(gaps[i - 1] - opts.gap) < 1e-6 else pgap)
             parts.append(w)
         if opts.tail_pad > 0:
             parts.append(tail)
@@ -1009,9 +1145,32 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
                 lines.append(f"{fmt_ts(start)} --> {fmt_ts(end)}")
                 lines.extend(wrap_subtitle(text, opts.srt_width))
                 lines.append("")
-                t = end + (opts.gap if idx < len(pairs) else 0.0)
+                t = end + (gaps[idx - 1] if idx < len(pairs) else 0.0)
             srt_path.write_text("\n".join(lines), encoding="utf-8")
             print(f"  [时间轴] {srt_path}（{len(pairs)} 条，{fmt_ts(t)} 结束）")
+
+        # ── 逐句报告：长文本靠它定位「第几句有问题」，不用整段回听 ──
+        rep = out_path.with_name(out_path.stem + "_report.txt")
+        exp_total = sum(r["expect"] for r in report) + sum(gaps) + (opts.head_pad + opts.tail_pad)
+        susp = [r for r in report if r.get("status", "ok") != "ok"]
+        hits = [r for r in report if r.get("source") == "缓存"]
+        rl = [f"稿子: {src}", f"输出: {out_path.name}（{dur:.2f}s，按字数+静音预期 {exp_total:.1f}s）",
+              f"引擎: {opts.engine}｜音色: {voice.get('name', '')}｜ckpt: {opts.qwen_ckpt or '-'}",
+              f"采样: talker {opts.qwen_temp}/{opts.qwen_top_p}｜sub-talker {opts.qwen_sub_temp}"
+              f"｜上限 {opts.qwen_max_new_tokens} 帧｜seed {opts.seed}",
+              f"缓存: {cache.dir if cache else '（--no-cache）'}｜命中 {len(hits)} 句"
+              f"｜可疑 {len(susp)} 句｜失败 {len(report) - len(kept_idx)} 句",
+              "", f"{'#':>3} {'字数':>4} {'预期':>6} {'实际':>6} {'抽数':>4} {'来源':<4} 状态   文本"]
+        for r in report:
+            rl.append(f"{r['i']:>3} {r['chars']:>4} {r['expect']:>6.2f} "
+                      f"{r.get('dur', 0):>6.2f} {r['draws']:>4} {r.get('source', ''):<4} "
+                      f"{r.get('status', ''):<8} {r['text'][:34]}")
+        if susp:
+            rl += ["", "可疑句（建议 --redo-lines 后重抽这几句）：",
+                   "  " + ", ".join(str(r["i"]) for r in susp)]
+        rep.write_text("\n".join(rl) + "\n", encoding="utf-8")
+        print(f"  [逐句报告] {rep}"
+              + (f"（可疑 {len(susp)} 句：{', '.join(str(r['i']) for r in susp)}）" if susp else "（全部合格）"))
         return True
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -1112,6 +1271,19 @@ def main() -> None:
                         help="预期语速（字/秒），只用来估上限 [默认: 5.5]")
     parser.add_argument("--screen-factor", type=float, default=2.5,
                         help="超过「预期 × 该倍数」且长出 8 秒以上 ⇒ 判为疑似失控 [默认: 2.5]")
+    parser.add_argument("--retry-draws", type=int, default=3, metavar="N",
+                        help="逐句筛：一句的时长落在窗口外（太长 = 重复/失控，太短 = 语种/参考文本不对）时"
+                             "就地重抽，最多再抽 N 次 [默认: 3；0 = 不重抽，只报告]")
+    parser.add_argument("--retry-factor", type=float, default=2.0,
+                        help="逐句「太长」的判据：超过 max(预期 × 该倍数, 预期 + 4 s) [默认: 2.0]")
+    parser.add_argument("--redo-lines", default="", metavar="句号",
+                        help="只强制重抽这几句（逗号分隔，1 起），其余句走逐句缓存 —— "
+                             "长文本里定位到第 12 句不行时用它，不用整段重跑")
+    parser.add_argument("--seg-cache", default=None,
+                        help="逐句缓存目录 [默认: 环境变量 PIPELINE_TTS_SEG_CACHE 或 "
+                             "PIPELINE_TTS_TMPDIR/read_cache，本项目里即 output/tts/tmp/read_cache]")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="关掉逐句缓存（每次全部重新合成）")
     parser.add_argument("--check", action="store_true", help="仅检查环境")
     parser.add_argument("--list-voices", action="store_true", help="列出可用音色")
     parser.add_argument("--register", metavar="音色名",
@@ -1187,6 +1359,9 @@ def main() -> None:
     p = parser.add_argument_group("后处理（尾音生硬时调这几个）")
     p.add_argument("--gap", type=float, default=DEFAULT_GAP,
                    help=f"句间静音秒数 [默认: {DEFAULT_GAP}]")
+    p.add_argument("--para-gap", type=float, default=None,
+                   help="**段落之间**的静音秒数（段落 = 源稿里用空行分开的块）。诗体 / 分行写的稿子"
+                        "行间的呼吸比句内停顿重要；不给则与 --gap 相同（行为与以前一致）")
     p.add_argument("--head-pad", type=float, default=DEFAULT_HEAD_PAD,
                    help=f"开头静音秒数 [默认: {DEFAULT_HEAD_PAD}]")
     p.add_argument("--tail-pad", type=float, default=DEFAULT_TAIL_PAD,
@@ -1314,6 +1489,8 @@ def main() -> None:
         for i, out_p in enumerate(outs, 1):
             if len(outs) > 1:
                 print(f"── 版本 {i}/{len(outs)}：{out_p.name}")
+            # 抽卡作用域：多版本 / --draw 时每发各自独立（用输出名区分），否则共用 single
+            opts.draw_scope = out_p.name if draw else "single"
             if not process_one(input_path, out_p, opts, voice):
                 all_ok = False
             elif out_p.exists():
@@ -1356,7 +1533,13 @@ def main() -> None:
                   f"（加 -f 覆盖，或加 --draw／--count 每跑一次出新文件）")
             skipped += 1
             continue
-        if all(process_one(src, out_p, opts, voice) for out_p in outs):
+        ok_one = True
+        for out_p in outs:
+            # 抽卡作用域同上：多版本时每发各自独立，否则共用 single
+            opts.draw_scope = out_p.name if draw else "single"
+            if not process_one(src, out_p, opts, voice):
+                ok_one = False
+        if ok_one:
             success += 1
         else:
             failed += 1
