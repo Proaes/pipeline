@@ -94,6 +94,19 @@ GENIE_CHAR_LANG = {"feibi": "zh", "mika": "jp", "thirtyseven": "en"}
 # 默认 sdpa：实测 flash_attention_2 在本模型（talker → code_predictor 两层嵌套
 # 自回归）上更慢（RTF 4.08 对 3.13），所以不随 flash-attn 是否安装而变。
 DEFAULT_QWEN_ATTN = "sdpa"
+# Qwen 的采样默认值（261003 七次实测定版，见 ISSUES/09 §14 / §19）：
+#   ① talker 温度收到 0.7 / top_p 0.9 —— 官方默认 0.9/1.0 会「颤」（用户听感原话）；
+#   ② **sub-talker 温度 0.5** —— 12 Hz 的 16 个码本里只有 1 个由 talker 出、另 **15 个**由
+#      `code_predictor` 出，而它的采样参数一直是包内默认 0.9；成对实测（同种子 4 句 2 发）
+#      **0.9 合格 4/8、0.5 合格 8/8**，用户另说 0.5 那一列的「语气非常贴近」；
+#   ③ 单句上限 600 帧（≈48 s）—— 包内默认 2048（≈164 s）时，一旦模型进重复循环会空转十几分钟；
+#      600 仍然远大于正常句（`--max-chars 120` ≈ 22 s 音频），但把一次失控的代价从 ~5 分钟压到 ~3 分钟
+#      （261003 七次实测：生产那批 3 发里有 2 发被失控句拖到 83 / 87 s，虽然都被 `--screen` 挡下，
+#      但每发白烧了五分钟）。
+DEFAULT_QWEN_TEMP = 0.7
+DEFAULT_QWEN_TOP_P = 0.9
+DEFAULT_QWEN_SUB_TEMP = 0.5
+DEFAULT_QWEN_MAX_NEW = 600
 QWEN_LANG_ALIASES = {
     "zh": "Chinese", "cn": "Chinese", "zh-cn": "Chinese", "chinese": "Chinese",
     "en": "English", "english": "English",
@@ -686,13 +699,22 @@ class QwenEngine:
                 else "仅音色向量（没给 ref_text，音色像但语气弱）")
         print(f"  音色提示             {time.time() - t0:6.2f}s"
               f"  ({mode}；目标文本 {self.lang})")
+        print(f"  采样                 talker temp {self.opts.qwen_temp} / top_p {self.opts.qwen_top_p}"
+              f"｜sub-talker temp {self.opts.qwen_sub_temp}"
+              f"｜上限 {self.opts.qwen_max_new_tokens} 帧")
 
     def synth(self, text: str, out_wav: Path) -> None:
         # 这条链路是随机解码（do_sample=True），--seed >= 0 时固定一下便于复现
         if self.opts.seed is not None and self.opts.seed >= 0:
             self.torch.manual_seed(self.opts.seed)
+        # 采样参数必须显式传：不传就用包内 hard defaults（talker 0.9/1.0、sub-talker 0.9/1.0、
+        # max_new_tokens 2048），而那套实测颤、且遇到重复循环会空转（见 DEFAULT_QWEN_* 的注释）。
         wavs, sr = self.model.generate_voice_clone(
-            text=text, language=self.lang, voice_clone_prompt=self.prompt)
+            text=text, language=self.lang, voice_clone_prompt=self.prompt,
+            temperature=self.opts.qwen_temp,
+            top_p=self.opts.qwen_top_p,
+            subtalker_temperature=self.opts.qwen_sub_temp,
+            max_new_tokens=self.opts.qwen_max_new_tokens)
         if not wavs:
             raise ToolError("Qwen 没有产出音频")
         self.sf.write(str(out_wav), wavs[0], sr)
@@ -1132,6 +1154,18 @@ def main() -> None:
                    choices=("sdpa", "flash_attention_2", "eager"),
                    help=f"Qwen 的 attention 实现 [默认: {DEFAULT_QWEN_ATTN}"
                         f" —— 实测比 flash_attention_2 快，装了 FA2 也别切]")
+    g.add_argument("--qwen-temp", type=float, default=DEFAULT_QWEN_TEMP,
+                   help=f"Qwen talker 采样温度 [默认: {DEFAULT_QWEN_TEMP}"
+                        f" —— 官方默认 0.9 会「颤」，实测收到 0.7 明显好]")
+    g.add_argument("--qwen-top-p", type=float, default=DEFAULT_QWEN_TOP_P,
+                   help=f"Qwen talker top_p [默认: {DEFAULT_QWEN_TOP_P}]")
+    g.add_argument("--qwen-sub-temp", type=float, default=DEFAULT_QWEN_SUB_TEMP,
+                   help=f"Qwen sub-talker（code_predictor，管 16 个码本里的 15 个）采样温度"
+                        f" [默认: {DEFAULT_QWEN_SUB_TEMP} —— 成对实测 0.9 合格 4/8、0.5 合格 8/8]")
+    g.add_argument("--qwen-max-new-tokens", type=int, default=DEFAULT_QWEN_MAX_NEW,
+                   help=f"Qwen 单句生成长度上限（codec 帧，12.5 帧/秒）"
+                        f" [默认: {DEFAULT_QWEN_MAX_NEW} ≈ {DEFAULT_QWEN_MAX_NEW / 12.5:.0f} s"
+                        f" —— 包内默认 2048（≈164 s），遇到重复循环会空转十几分钟]")
 
     v = parser.add_argument_group("音色")
     v.add_argument("--voice", default=None, help="音色名（voices/<名>/ 或 GENIE 预设角色名）")
