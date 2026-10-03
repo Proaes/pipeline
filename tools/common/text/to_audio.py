@@ -890,6 +890,38 @@ def file_sig(p) -> str:
         return "-"
 
 
+def _key_path(p) -> str:
+    """缓存键里的文件路径统一成绝对路径。
+
+    不归一的话，同一个参考音频 / 同一份 ckpt 会因为「命令行写相对路径、界面传绝对路径」
+    算出两个不同的键 ⇒ 两边的逐句缓存互相看不见（261003 八次实测：命令行刚跑完 25 句，
+    界面再跑同一篇稿子，命中 0 句、整篇从头合成）。绝对化之后相对路径按当前工作目录解析。
+    """
+    if not p:
+        return ""
+    try:
+        return str(Path(p).resolve())
+    except OSError:
+        return str(p)
+
+
+def seg_cache_key(opts: argparse.Namespace, voice: dict) -> str:
+    """逐句缓存的公共键：引擎 / 音色 / 参考 / ckpt / 采样 / seed / 抽卡作用域。
+
+    句子的指纹**只由句文本决定**（见 `SegCache.path`）⇒ 同一句在「先跑 6 句验证、
+    再跑全篇」两次运行里命中同一个文件，验证那一遍不算白跑。
+    """
+    key = hashlib.sha1()
+    for part in (opts.engine, voice.get("name", ""), _key_path(voice.get("prompt_wav")),
+                 file_sig(voice.get("prompt_wav")), voice.get("prompt_text", ""),
+                 _key_path(opts.qwen_ckpt), file_sig(opts.qwen_ckpt) if opts.qwen_ckpt else "-",
+                 f"{opts.qwen_temp}/{opts.qwen_top_p}/{opts.qwen_sub_temp}/{opts.qwen_max_new_tokens}",
+                 f"seed={opts.seed}", getattr(opts, "draw_scope", "single")):
+        key.update(str(part).encode("utf-8"))
+        key.update(b"|")
+    return key.hexdigest()[:16]
+
+
 class SegCache:
     """逐句缓存：`<根>/<公共键>/<句子指纹>.wav`。
 
@@ -1051,19 +1083,10 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
             print(f"    {i:>3}. {c}")
         return True
 
-    # 逐句缓存的键：引擎 / 音色 / 参考 / ckpt / 采样 / seed / 抽卡作用域（句文本单独进文件名）
-    key = hashlib.sha1()
-    for part in (opts.engine, voice.get("name", ""), str(voice.get("prompt_wav", "")),
-                 file_sig(voice.get("prompt_wav")), voice.get("prompt_text", ""),
-                 opts.qwen_ckpt or "", file_sig(opts.qwen_ckpt) if opts.qwen_ckpt else "-",
-                 f"{opts.qwen_temp}/{opts.qwen_top_p}/{opts.qwen_sub_temp}/{opts.qwen_max_new_tokens}",
-                 f"seed={opts.seed}", getattr(opts, "draw_scope", "single")):
-        key.update(str(part).encode("utf-8"))
-        key.update(b"|")
+    key = seg_cache_key(opts, voice)
     cache = None
     if not opts.no_cache:
-        cache = SegCache(Path(opts.seg_cache) if opts.seg_cache else SegCache.default_root(),
-                         key.hexdigest()[:16])
+        cache = SegCache(Path(opts.seg_cache) if opts.seg_cache else SegCache.default_root(), key)
         print(f"  逐句缓存: {cache.dir}")
     redo = frozenset(int(x) for x in opts.redo_lines.replace("，", ",").split(",") if x.strip().isdigit())
     if redo:

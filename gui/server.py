@@ -265,12 +265,34 @@ JOBS_ROOT = ROOT / "jobs"
 MAX_LOG = 2000  # 单步日志截断长度
 
 
-def _run(cmd: list[str]) -> dict:
-    """跑一个子进程，返回 {ok, out, err}。"""
+# 单步子进程超时。默认 600 s：PDF / OCR / PPT 那几条链都够用。
+# 语音合成这条链不在这个量级 —— Qwen 读稿实测 RTF≈4、每句另有约 10 s 固定开销，
+# 一篇 900 字的稿子（25 句）光生成就要十几分钟，600 s 必被 kill
+# （261003 八次实测：md 改版后重跑撞墙，只合成出 7 句就被终止）。
+# 所以音频步骤单独给一个更宽的可配超时，别的步骤行为不变。
+STEP_TIMEOUT = float(os.environ.get("PIPELINE_STEP_TIMEOUT", "600"))
+TTS_STEP_TIMEOUT = float(os.environ.get("PIPELINE_TTS_STEP_TIMEOUT", "3600"))
+# TTS 子进程的临时目录：不设的话逐句缓存落在系统 %TEMP%，命令行跑同一篇稿子时对不上，
+# 界面这一路也就永远吃不到缓存（每次都得从头合成十几分钟）。缺省指到项目里，与 CLI 一致。
+TTS_TMPDIR = ROOT / "output" / "tts" / "tmp"
+# numba 的 JIT 缓存目录：不指定时 numba 会往 site-packages 里 librosa 自己的 __pycache__
+# 写缓存文件；那个目录在工作区外、受限环境下写不进去，于是 numba 在 ensure_cache_path 里
+# 死等 —— 实测子进程 100% CPU 转 10 分钟、零产物（260929 老坑）。指到项目里既避开它，
+# 又能复用命令行跑热的那份缓存。
+TTS_NUMBA_DIR = ROOT / "output" / "tts" / "numba_cache"
+
+
+def _run(cmd: list[str], timeout: float = STEP_TIMEOUT,
+         env: dict | None = None) -> dict:
+    """跑一个子进程，返回 {ok, out, err}。timeout 按步骤给（音频那步长得多）。
+
+    `env` 只在需要给子进程补环境变量时传（TTS 的缓存落点），传的是**完整环境**，
+    不是补丁 —— 调用方负责 `dict(os.environ)` 之后再改。
+    """
     try:
         r = subprocess.run(
             cmd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=600,
+            encoding="utf-8", errors="replace", timeout=timeout, env=env,
         )
         return {
             "ok": r.returncode == 0,
@@ -278,7 +300,7 @@ def _run(cmd: list[str]) -> dict:
             "err": (r.stderr or "")[-MAX_LOG:],
         }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "out": "", "err": "超时（>600s）被终止"}
+        return {"ok": False, "out": "", "err": f"超时（>{int(timeout)}s）被终止"}
 
 
 # 各目标格式可接受的输入扩展名（前端 TARGET_EXTS 与此保持一致）
@@ -377,7 +399,13 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
         step = {"step": f"文本 → {fmt.upper()}（{label}）",
                 "cmd": [PY_TTS, str(TEXT_TO_AUDIO), str(file),
                         "-o", str(out / f"{stem}.{fmt}"),
-                        "--engine", tts_engine, "--format", fmt, "--genie-root", GENIE_ROOT]}
+                        "--engine", tts_engine, "--format", fmt, "--genie-root", GENIE_ROOT],
+                # 合成是长活（Qwen 读稿一篇几分钟到十几分钟）⇒ 单独放宽超时；
+                # 另把逐句缓存的根与 numba 的 JIT 缓存目录补进子进程环境，
+                # 与命令行跑同一篇稿子共用缓存、也不再撞「numba 写不进 site-packages」
+                "timeout": TTS_STEP_TIMEOUT,
+                "env": {"PIPELINE_TTS_TMPDIR": str(TTS_TMPDIR),
+                        "NUMBA_CACHE_DIR": str(TTS_NUMBA_DIR)}}
         cmd = step["cmd"]
         if model:
             cmd += ["--model", model["id"]]
@@ -462,7 +490,13 @@ def convert_one(file: Path, target: str, engine: str, outdir: str,
 
     results = []
     for s in steps:
-        r = _run(s["cmd"])
+        env = None
+        if s.get("env"):
+            # "补"而不是"覆盖"：用户自己设了 PIPELINE_TTS_TMPDIR 就听他的
+            env = dict(os.environ)
+            for k, v in s["env"].items():
+                env.setdefault(k, v)
+        r = _run(s["cmd"], s.get("timeout") or STEP_TIMEOUT, env)
         results.append({"step": s["step"], "ok": r["ok"], "out": r["out"], "err": r["err"]})
         if not r["ok"]:
             break
