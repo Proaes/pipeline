@@ -41,6 +41,12 @@ text_to_audio.py — 文本转语音工具
     qwen 引擎：D:\\mamba\\envs\\tts 环境（qwen-tts + CUDA 版 torch）+ 模型目录
         （见 --check）；实测约 4 倍实时，1000 字稿子约 13 分钟
     ffmpeg 需要在 PATH 中（后处理、拼接、转 mp3）
+
+运行记录（261004 起，`--record-dir` 默认 `output/tts/logs/`）:
+    每次合成自动写两份数据账，供事后统计「各方案良率 / 返工几次 / 失控率 / 成本」：
+      · `detail/<run_id>.jsonl`：这一次的明细（run + 逐句 + 每一发的时长与被拒原因）；
+      · `runs.jsonl`：全局账，一行一次运行（参数快照 + 汇总指标 + 逐句指针）。
+    只记数据、不影响音频；`--no-record` 关掉，`--origin` / `--trigger-json` 用来标「谁点的、勾了什么」。
 """
 
 import argparse
@@ -59,6 +65,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 指向 tools/
@@ -107,6 +114,13 @@ DEFAULT_QWEN_TEMP = 0.7
 DEFAULT_QWEN_TOP_P = 0.9
 DEFAULT_QWEN_SUB_TEMP = 0.5
 DEFAULT_QWEN_MAX_NEW = 600
+# ── 生产数据账（261004 一次）──────────────────────────────────────
+# 用户要「在实际运用中记录使用的数据，用来后续微调以及优化」（各方案良率、返工几次……）。
+# 每次运行写两份：明细 `<根>/detail/<run_id>.jsonl`（一行 = 这次运行，含逐句与每一发），
+# 以及全局账 `<根>/runs.jsonl`（追加一行 = 一次运行，seg 不带每发明细，方便整表读进来 group by）。
+# `output/` 在 .gitignore 里 ⇒ 稿子内容与音频数据不会进公开仓。
+DEFAULT_RECORD_ROOT = common.PROJECT_ROOT / "output" / "tts" / "logs"
+LEDGER_NAME = "runs.jsonl"
 QWEN_LANG_ALIASES = {
     "zh": "Chinese", "cn": "Chinese", "zh-cn": "Chinese", "chinese": "Chinese",
     "en": "English", "english": "English",
@@ -882,11 +896,17 @@ def split_sentences_with_para(text: str, max_chars: int = DEFAULT_MAX_CHARS,
 
 
 def file_sig(p) -> str:
-    """文件指纹（大小 + 修改秒），进缓存键：权重 / 参考音频换了就必须重抽。"""
+    """文件指纹（大小 + 修改秒），进缓存键：权重 / 参考音频换了就必须重抽。
+
+    没有参考音频（sapi / 无音色）时给 `-` —— `Path(None)` 抛的是 TypeError 不是 OSError，
+    261004 被数据账那条路踩到过一次（`--engine sapi` 同理），所以两种都吃掉。
+    """
+    if not p:
+        return "-"
     try:
         st = Path(p).stat()
         return f"{st.st_size}-{int(st.st_mtime)}"
-    except OSError:
+    except (OSError, TypeError, ValueError):
         return "-"
 
 
@@ -922,6 +942,192 @@ def seg_cache_key(opts: argparse.Namespace, voice: dict) -> str:
     return key.hexdigest()[:16]
 
 
+# ── 生产数据账：run / seg / draw 三层 ─────────────────────────────
+def text_fp(text: str) -> str:
+    """句子指纹（与逐句缓存的文件名同源）——账里的句子和缓存里的 wav 能对上号。"""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def sha1_file(p) -> str:
+    """文件内容哈希：源稿与产物各留一个，事后能核对「是不是同一份东西」。"""
+    if not p:
+        return ""
+    try:
+        h = hashlib.sha1()
+        with open(p, "rb") as fh:
+            for blk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(blk)
+        return h.hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+def git_rev() -> str:
+    """项目代码版本（短哈希，取不到就是空）——账要能回答「哪版代码跑出来的」。"""
+    try:
+        r = subprocess.run(["git", "-C", str(common.PROJECT_ROOT), "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=5)
+        return (r.stdout or "").strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def new_run_id() -> str:
+    """运行编号：`年月日时分秒-4 位随机`，可按时间排序又不会撞。"""
+    return time.strftime("%Y%m%d%H%M%S") + "-" + uuid.uuid4().hex[:4]
+
+
+def parse_trigger(raw: str):
+    """触发侧上下文（界面勾选项等）：是 JSON 就解出来，不是就原样留着。"""
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw
+
+
+def record_root(opts: argparse.Namespace) -> Path:
+    """账本落点：`--record-dir` > 环境变量 `PIPELINE_TTS_RECORD_DIR` > 项目 output/tts/logs。"""
+    raw = str(opts.record_dir or os.environ.get("PIPELINE_TTS_RECORD_DIR") or "").strip()
+    return Path(raw) if raw else DEFAULT_RECORD_ROOT
+
+
+def append_jsonl(path: Path, obj: dict) -> None:
+    """追加一行 JSONL；整行一次 write（并发下尽量不交错），失败只警告不打断合成。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+
+def params_snapshot(opts: argparse.Namespace, voice: dict) -> dict:
+    """这一次运行的全部旋钮 —— 良率差异的归因全靠它；别在别处再抄一份。"""
+    return {
+        "engine": opts.engine, "format": opts.format, "seed": opts.seed,
+        "raw": bool(opts.raw), "no_cache": bool(opts.no_cache),
+        "cond_mode": "icl" if voice.get("prompt_text") else "xvec",
+        "qwen": {"model": str(opts.qwen_model or DEFAULT_QWEN_MODEL),
+                 "ckpt": _key_path(opts.qwen_ckpt),
+                 "temp": opts.qwen_temp, "top_p": opts.qwen_top_p,
+                 "sub_temp": opts.qwen_sub_temp,
+                 "max_new_tokens": opts.qwen_max_new_tokens,
+                 "attn": opts.qwen_attn, "device": opts.qwen_device or "auto"},
+        # 这三项我们从来没传过，走的是包内默认 ⇒ 单独记一笔，免得事后误以为「调过」
+        "qwen_pkg_defaults": {"top_k": 50, "sub_top_p": 1.0, "sub_top_k": 50,
+                              "repetition_penalty": 1.05},
+        "voice": {"name": voice.get("name") or "", "ref": _key_path(voice.get("prompt_wav")),
+                  "ref_sig": file_sig(voice.get("prompt_wav")),
+                  "prompt_text": voice.get("prompt_text") or ""},
+        "split": {"max_chars": opts.max_chars, "min_chars": opts.min_chars},
+        "screen": {"rate": opts.screen_rate, "factor": opts.screen_factor,
+                   "retry_draws": opts.retry_draws, "retry_factor": opts.retry_factor,
+                   "shortest_rule": "字数/15"},
+        "post": {"gap": opts.gap, "para_gap": opts.para_gap, "head_pad": opts.head_pad,
+                 "tail_pad": opts.tail_pad, "fade": opts.fade,
+                 "trim_tail_ms": opts.trim_tail_ms, "srt": bool(opts.srt)},
+        "redo_lines": sorted(int(x) for x in opts.redo_lines.replace("，", ",").split(",")
+                             if x.strip().isdigit()),
+        "service": f"{opts.host}:{opts.port}" if opts.engine == "gptsovits" else "",
+    }
+
+
+def emit_run_safe(*args, **kwargs) -> dict:
+    """`emit_run` 的兜底包装：**数据账绝不能把合成搞挂**，出任何意外都只警告。"""
+    try:
+        return emit_run(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - 记录是旁路，任何异常都不该影响出音频
+        print(f"  [警告] 写运行记录失败（{type(exc).__name__}: {exc}）—— 不影响这次合成")
+        return {}
+
+
+def emit_run(opts: argparse.Namespace, voice: dict, src, out_path, report: list[dict],
+             run_id: str, t_start: float, dur: float, n_para: int = 0,
+             ok: bool = True, reason: str = "") -> dict:
+    """把一次运行落成记录（明细 + 全局账各一份），并返回记录对象。
+
+    `report` = `synth_all` 的逐句行（含每发的 `draw_log`）。指标口径：
+      · `ok_rate`          合格句 / 总句数（含缓存命中）
+      · `first_pass_rate`  **新合成**的句子里「第一发就落在窗口内」的比例 ← 这就是良率
+      · `runaway_draws`    被时长窗口判为「偏长（疑似失控）」的发数 ← 这是返工的主要来源
+    """
+    t_end = time.time()
+    segs: list[dict] = []
+    for r in report:
+        draws = r.get("draw_log") or []
+        segs.append({
+            "i": r["i"], "fp": r.get("fp", ""), "chars": r["chars"], "text": r["text"],
+            "expect": r.get("expect"), "lo": r.get("lo"), "hi": r.get("hi"),
+            "dur": r.get("dur"), "draws": r.get("draws", 0), "wall": r.get("wall"),
+            "source": r.get("source", ""), "status": r.get("status", ""),
+            "reasons": [d.get("reason", "") for d in draws if d.get("reason")],
+            "draw_log": draws,
+        })
+
+    def rate(num, den):
+        return round(num / den, 4) if den else None
+
+    gen = [r for r in report if r.get("source") == "生成"]
+    hit = [r for r in report if r.get("source") == "缓存"]
+    kept = [r for r in report if r.get("dur") is not None]
+    ok_rows = [r for r in report if r.get("status") == "ok"]
+    first_pass = [r for r in gen if r.get("draws") == 1 and r.get("status") == "ok"]
+    all_draws = [d for r in report for d in (r.get("draw_log") or [])]
+    chars = sum(r["chars"] for r in report)
+    loop_wall = round(sum(r.get("wall") or 0 for r in report), 2)
+    total_wall = round(t_end - t_start, 2)
+
+    summary = {
+        "ok": bool(ok), "reason": reason,
+        "n_seg": len(report), "n_para": n_para, "chars": chars,
+        "n_ok": len(ok_rows), "ok_rate": rate(len(ok_rows), len(report)),
+        "n_susp": len([r for r in report if (r.get("status") or "ok") != "ok"]),
+        "n_fail": len(report) - len(kept),
+        "n_gen": len(gen), "n_cache": len(hit), "cache_hit_rate": rate(len(hit), len(report)),
+        "first_pass": len(first_pass), "first_pass_rate": rate(len(first_pass), len(gen)),
+        "redraw_segs": len([r for r in gen if r.get("draws", 0) > 1]),
+        "redraws_total": sum(max(0, r.get("draws", 0) - 1) for r in gen),
+        "draws_total": len(all_draws),
+        "runaway_draws": len([d for d in all_draws if d.get("reason") == "偏长"]),
+        "short_draws": len([d for d in all_draws if d.get("reason") == "偏短"]),
+        "err_draws": len([d for d in all_draws if d.get("reason") == "异常"]),
+        "cap_guess_draws": len([d for d in all_draws if d.get("cap_guess")]),
+        "audio_dur": round(dur, 2),
+        "loop_wall": loop_wall, "total_wall": total_wall,
+        "rtf_loop": rate(loop_wall, round(dur, 2)) if dur else None,
+        "rtf_total": rate(total_wall, round(dur, 2)) if dur else None,
+        "chars_per_sec": rate(chars, round(dur, 2)) if dur else None,
+    }
+    rec = {
+        "kind": "run", "run_id": run_id,
+        "ts_start": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t_start)),
+        "ts_end": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t_end)),
+        "origin": getattr(opts, "origin", "") or "cli",
+        "trigger": parse_trigger(getattr(opts, "trigger_json", "")),
+        "src": str(src) if src else "", "src_sha1": sha1_file(src),
+        "out": str(out_path) if out_path else "", "out_sha1": sha1_file(out_path),
+        "out_bytes": out_path.stat().st_size if (out_path and out_path.is_file()) else 0,
+        "params": params_snapshot(opts, voice),
+        "summary": summary,
+        "argv": [str(x) for x in sys.argv[1:]],
+        "code": {"tool": "to_audio", "git": git_rev()},
+        "segs": segs,
+    }
+    if getattr(opts, "no_record", False):
+        return rec
+    root = record_root(opts)
+    try:
+        detail = root / "detail" / f"{run_id}.jsonl"
+        detail.parent.mkdir(parents=True, exist_ok=True)
+        detail.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
+        light = dict(rec, segs=[{k: v for k, v in s.items() if k != "draw_log"} for s in segs],
+                     detail=str(detail))
+        append_jsonl(root / LEDGER_NAME, light)
+        print(f"  [记录] {root / LEDGER_NAME}（run {run_id}；明细 {detail.name}）")
+    except OSError as exc:
+        print(f"  [警告] 写运行记录失败（{exc}）—— 不影响这次合成")
+    return rec
+
+
 class SegCache:
     """逐句缓存：`<根>/<公共键>/<句子指纹>.wav`。
 
@@ -950,7 +1156,7 @@ class SegCache:
     def path(self, text: str) -> Path | None:
         if self.dir is None:
             return None
-        return self.dir / (hashlib.sha1(text.encode("utf-8")).hexdigest()[:12] + ".wav")
+        return self.dir / (text_fp(text) + ".wav")
 
 
 # ── 主流程 ────────────────────────────────────────────────────────
@@ -999,12 +1205,14 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
         hi = max(expect * max(1.0, opts.retry_factor), expect + 4.0)
         cpath = cache.path(chunk) if cache is not None else None
         row = {"i": i, "chars": len(chunk), "expect": round(expect, 2), "text": chunk,
-               "draws": 0, "status": "ok", "source": ""}
+               "fp": text_fp(chunk), "lo": round(lo, 2), "hi": round(hi, 2),
+               "draws": 0, "status": "ok", "source": "", "draw_log": []}
 
         if cpath is not None and cpath.is_file() and i not in redo:
             shutil.copy2(cpath, out)
             dur = probe_duration(out)
-            row.update(draws=0, source="缓存", dur=round(dur, 2))
+            row.update(draws=0, source="缓存", dur=round(dur, 2),
+                       wall=round(time.time() - t0, 2))
             if not (lo <= dur <= hi):
                 row["status"] = "可疑(缓存)"
             wavs.append((chunk, out))
@@ -1012,8 +1220,11 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
             report.append(row)
             continue
 
+        # 帧上限打满的旁证：600 帧 ≈ 48 s，正常句远短于它 ⇒ 逼近上限多半是重复循环
+        cap_s = (opts.qwen_max_new_tokens / 12.5) if opts.engine == "qwen" else 0.0
         best: tuple[float, float] | None = None                 # (是否合格, 时长)
         for attempt in range(1, max(1, opts.retry_draws) + 2):
+            t1 = time.time()
             try:
                 if engine is not None:      # genie / qwen：引擎实例已加载好
                     engine.synth(chunk, out)
@@ -1022,6 +1233,9 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
                 else:
                     synth_sapi(chunk, out, opts, voice)
             except ToolError as exc:
+                row["draw_log"].append({"i": i, "attempt": attempt, "ok": False,
+                                        "reason": "异常", "wall": round(time.time() - t1, 2),
+                                        "err": str(exc).splitlines()[0][:160]})
                 if attempt <= max(1, opts.retry_draws) + 1:
                     print(f"        重试（{str(exc).splitlines()[0][:70]}）")
                     time.sleep(1.0)
@@ -1032,6 +1246,11 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
             dur = probe_duration(out)
             ok = lo <= dur <= hi
             row["draws"] = attempt
+            row["draw_log"].append({
+                "i": i, "attempt": attempt, "dur": round(dur, 2), "ok": bool(ok), "wall": round(time.time() - t1, 2),
+                "reason": "" if ok else ("偏长" if dur > hi else "偏短"),
+                "cap_guess": bool(cap_s and dur >= 0.9 * cap_s),
+            })
             if ok:
                 best = (1.0, dur)
                 break
@@ -1054,7 +1273,8 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
             if cpath is not None and row["status"] == "ok":
                 shutil.copy2(out, cpath)                         # 只有合格发才进缓存
             wavs.append((chunk, out))
-            print(f"        {time.time() - t0:5.2f}s")
+            row["wall"] = round(time.time() - t0, 2)
+            print(f"        {row['wall']:5.2f}s")
         else:
             failed += 1
         report.append(row)
@@ -1067,6 +1287,8 @@ def synth_all(chunks: list[str], opts: argparse.Namespace, voice: dict,
 def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
                 voice: dict) -> bool:
     """处理单个文本文件。"""
+    run_id = new_run_id()                       # 这一次运行的编号（数据账的主键）
+    t_start = time.time()
     print(f"  读取: {src}")
     speakable = read_text(src)
     if not opts.raw:
@@ -1074,9 +1296,12 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
     chunks, para_of = split_sentences_with_para(speakable, opts.max_chars, opts.min_chars)
     if not chunks:
         print("  [跳过] 洗掉 Markdown 标记后没有可朗读的文字")
+        emit_run_safe(opts, voice, src, None, [], run_id, t_start, 0.0,
+                 ok=False, reason="清洗后没有可朗读的文字")
         return False
+    n_para = (max(para_of) + 1) if para_of else 0
     print(f"  切句: {len(chunks)} 句，共 {sum(len(c) for c in chunks)} 字"
-          + (f"，{max(para_of) + 1} 段" if para_of else ""))
+          + (f"，{n_para} 段" if n_para else ""))
 
     if opts.dry_run:
         for i, c in enumerate(chunks, 1):
@@ -1103,9 +1328,17 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
     else:
         workdir = Path(tempfile.mkdtemp(prefix="pipeline_tts_"))
     try:
-        pairs, report = synth_all(chunks, opts, voice, workdir, cache=cache, redo=redo)
+        try:
+            pairs, report = synth_all(chunks, opts, voice, workdir, cache=cache, redo=redo)
+        except ToolError as exc:
+            # 引擎加载 / 连服务失败这种「一句都没跑起来」的也算一次运行，记下来
+            emit_run_safe(opts, voice, src, None, [], run_id, t_start, 0.0, n_para=n_para,
+                     ok=False, reason=f"合成中断：{str(exc).splitlines()[0][:200]}")
+            raise
         if not pairs:
             print("  [失败] 没有一句合成成功")
+            emit_run_safe(opts, voice, src, None, report, run_id, t_start, 0.0, n_para=n_para,
+                     ok=False, reason="没有一句合成成功")
             return False
 
         # 段与段之间用更长的静音（`--para-gap`；不给就与 `--gap` 相同 ⇒ 行为与以前一致）
@@ -1194,6 +1427,9 @@ def process_one(src: Path, out_path: Path, opts: argparse.Namespace,
         rep.write_text("\n".join(rl) + "\n", encoding="utf-8")
         print(f"  [逐句报告] {rep}"
               + (f"（可疑 {len(susp)} 句：{', '.join(str(r['i']) for r in susp)}）" if susp else "（全部合格）"))
+
+        # ── 生产数据账：这次运行的参数、逐句结果、每一发的时长与被拒原因 ──
+        emit_run_safe(opts, voice, src, out_path, report, run_id, t_start, dur, n_para=n_para)
         return True
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -1276,6 +1512,7 @@ def main() -> None:
   python tools/common/text/to_audio.py note.md --engine sapi --format mp3
   python tools/common/text/to_audio.py note.md --dry-run
   python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c -o test/稿子.mp3
+  python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_q --no-record   # 不记数据账
         """,
     )
     parser.add_argument("input", nargs="?", default=None, help="输入文本文件或目录")
@@ -1316,6 +1553,16 @@ def main() -> None:
     parser.add_argument("--raw", action="store_true",
                         help="原样朗读：跳过 Markdown 清洗。稿子里有 $ 公式、**强调**、"
                              "「1.」编号行时用它，免得那些字符被静默吃掉")
+
+    d = parser.add_argument_group("数据账（生产用的运行记录）")
+    d.add_argument("--record-dir", default=None,
+                   help="运行记录落点 [默认: 环境变量 PIPELINE_TTS_RECORD_DIR 或 "
+                        f"{DEFAULT_RECORD_ROOT}]；每次运行写 detail/<run_id>.jsonl 并追加 {LEDGER_NAME}")
+    d.add_argument("--no-record", action="store_true", help="这次运行不写记录")
+    d.add_argument("--origin", default="cli",
+                   help="触发来源标签（界面会传 gui）[默认: cli]")
+    d.add_argument("--trigger-json", default="",
+                   help="触发侧上下文（界面勾了哪些选项等）的 JSON，原样存进这次运行的记录")
 
     g = parser.add_argument_group("合成")
     g.add_argument("--engine", default="genie", choices=ENGINES,

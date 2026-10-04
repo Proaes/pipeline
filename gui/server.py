@@ -445,6 +445,13 @@ def _steps_for(file: Path, target: str, engine: str, outdir: str,
             n_ver = 1
         if n_ver > 1:
             cmd += ["--count", str(n_ver)]
+        # 数据账（261004 一次）：把「谁点的、勾了哪些选项」一起交给 to_audio 记进这次运行的记录
+        trigger = {"target": target, "format": fmt, "engine": tts_engine,
+                   "model": (model or {}).get("id", ""), "voice": str(opts.get("voice") or ""),
+                   "draw": bool(opts.get("tts_draw")), "count": n_ver,
+                   "force": bool(force), "srt": bool(opts.get("audio_srt")),
+                   "outdir": str(out)}
+        cmd += ["--origin", "gui", "--trigger-json", json.dumps(trigger, ensure_ascii=True)]
         return [step]
 
     if target == "pdf":
