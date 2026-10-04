@@ -3,10 +3,15 @@
 jobs/
 # 输入素材与输出产物
 input/
+# 注：output/ 于 261004 二次**按用户要求整体删除**（老「输入→输出文件夹」设计已废）：
+#     TTS 那条线的脚本/权重/素材搬进工作区 pipeline-specialized/tts/（按功能分家），
+#     md→pdf 的构建目录改到 .runtime/md_build。下面这条只留作兜底，防止哪天又被建出来。
 output/
 output_text/
 download/
 other_files/
+# 运行期目录（ollama 服务日志、md 构建中间物等）
+.runtime/
 # 软删除区
 recycle_bin/
 # 我的问题记录（本地留档，不入库）

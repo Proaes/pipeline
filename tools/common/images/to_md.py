@@ -5,7 +5,7 @@ batch_ocr.py — 批量 OCR：扫描文件夹中的图片，调用 Ollama 视觉
 
 用法:
     python batch_ocr.py                           # 使用默认配置
-    python batch_ocr.py -i ./images -o ./output   # 指定输入输出目录
+    python batch_ocr.py -i ./images -o ./output_md   # 指定输入输出目录
     python batch_ocr.py --prompt "提取表格数据"     # 自定义提示词
     python batch_ocr.py --recursive                # 递归扫描子文件夹
 
@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ── 默认配置 ──────────────────────────────────────────────────────
 DEFAULT_INPUT = "input"
-DEFAULT_OUTPUT = "output"
+DEFAULT_OUTPUT = "output_md"
 DEFAULT_MODEL = "qwen2.5vl:7b"
 DEFAULT_PROMPT = (
     "请仔细阅读此图片内容，并将其完整转换为Markdown格式。\n"
@@ -207,7 +207,7 @@ def main():
         epilog="""
 示例:
   python batch_ocr.py                                  # 使用默认配置
-  python batch_ocr.py -i ./images -o ./output          # 指定输入输出目录
+  python batch_ocr.py -i ./images -o ./output_md          # 指定输入输出目录
   python batch_ocr.py --model qwen2.5vl:7b             # 指定模型
   python batch_ocr.py --prompt "提取表格数据为CSV格式"   # 自定义提示词
   python batch_ocr.py --recursive                       # 递归扫描子文件夹

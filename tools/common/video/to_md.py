@@ -258,7 +258,7 @@ def main():
     )
     parser.add_argument("input", help="输入视频文件或目录")
     parser.add_argument("-o", "--output", default=None, help="输出文本路径（单文件模式）")
-    parser.add_argument("--outdir", default="./output", help="输出目录（批量模式） [默认: ./output]")
+    parser.add_argument("--outdir", default="./output_text", help="输出目录（批量模式） [默认: ./output_text]")
     parser.add_argument("-m", "--model", default="sensevoice", choices=ASR_MODELS,
                         help=f"ASR 模型 [默认: sensevoice]")
     parser.add_argument("--chunk", type=int, default=60,

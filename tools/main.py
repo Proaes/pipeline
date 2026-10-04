@@ -12,7 +12,7 @@ main.py — 批量格式转换
 
 config.json 格式:
     {
-      "defaults": { "outdir": "output", "lang": "zh" },
+      "defaults": { "outdir": "out", "lang": "zh" },
       "tasks": [
         { "input": "path/file.pptx",  "to": ["json", "md", "tex"] },
         { "input": "path/file.sql",   "to": ["drawio"] },
@@ -76,7 +76,7 @@ def process_task(task: dict[str, Any], defaults: dict[str, Any]) -> bool:
         print(f"  跳过: 文件不存在 — {input_path}")
         return False
 
-    out_dir = Path(task.get("outdir", defaults.get("outdir", "output")))
+    out_dir = Path(task.get("outdir", defaults.get("outdir", "out")))
     if not out_dir.is_absolute():
         out_dir = (SCRIPT_DIR / out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)

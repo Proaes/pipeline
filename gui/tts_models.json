@@ -16,15 +16,15 @@
           "id": "si-ft",
           "label": "祀-G",
           "note": "祀 的微调权重（GPT si-e15.ckpt + SoVITS si_e8_s328.pth，v2ProPlus）= 261001 定版，默认走这条",
-          "gpt_weights": "output/tts/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt",
-          "sovits_weights": "output/tts/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth"
+          "gpt_weights": "E:/files/Main/pipeline-specialized/tts/model/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt",
+          "sovits_weights": "E:/files/Main/pipeline-specialized/tts/model/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth"
         },
         {
           "id": "si-org",
           "label": "祀-G（原版权重）",
           "note": "v2ProPlus 官方底模 s1v3.ckpt + v2Pro/s2Gv2ProPlus.pth，没经过我的素材微调；只用来对照，我没实测过听感",
-          "gpt_weights": "output/tts/gpt-sovits/GPT_SoVITS/pretrained_models/s1v3.ckpt",
-          "sovits_weights": "output/tts/gpt-sovits/GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth"
+          "gpt_weights": "E:/files/Main/pipeline-specialized/tts/model/gpt-sovits/GPT_SoVITS/pretrained_models/s1v3.ckpt",
+          "sovits_weights": "E:/files/Main/pipeline-specialized/tts/model/gpt-sovits/GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth"
         }
       ]
     },
@@ -37,8 +37,8 @@
         {
           "id": "si-genie",
           "label": "祀-G（ONNX/GENIE）",
-          "note": "si-ft 导出的 9 个 ONNX（output/tts/onnx/si_e15）；ONNX 路径固定在该目录，本界面不切换它",
-          "onnx_dir": "output/tts/onnx/si_e15"
+          "note": "si-ft 导出的 9 个 ONNX（E:/files/Main/pipeline-specialized/tts/model/onnx/si_e15）；ONNX 路径固定在该目录，本界面不切换它",
+          "onnx_dir": "E:/files/Main/pipeline-specialized/tts/model/onnx/si_e15"
         }
       ]
     },
@@ -51,10 +51,10 @@
         {
           "id": "si-qwen-ep3",
           "label": "祀-Q（Qwen 微调 ep3）",
-          "note": "祀 的 Qwen3-TTS 微调第 3 轮（output/tts/qwen_ft/si/ckpt_ep3.pt）叠在官方 0.6B Base 上；261003 定版选 ep3 —— 续训的 ep5/ep8 实测有 2/8 格生成失控。参考音频固定 voices/si_q（陈述句、F0 跨度最大那条）：261003 实测合格 6/8，旧参考 si_c 5/8、俏皮反问那条只有 1/8",
+          "note": "祀 的 Qwen3-TTS 微调第 3 轮（E:/files/Main/pipeline-specialized/tts/model/qwen_ft/si/ckpt_ep3.pt）叠在官方 0.6B Base 上；261003 定版选 ep3 —— 续训的 ep5/ep8 实测有 2/8 格生成失控。参考音频固定 voices/si_q（陈述句、F0 跨度最大那条）：261003 实测合格 6/8，旧参考 si_c 5/8、俏皮反问那条只有 1/8",
           "voice": "si_q",
           "qwen_model": "D:/tools/qwen3tts/Qwen3-TTS-12Hz-0.6B-Base",
-          "qwen_ckpt": "output/tts/qwen_ft/si/ckpt_ep3.pt"
+          "qwen_ckpt": "E:/files/Main/pipeline-specialized/tts/model/qwen_ft/si/ckpt_ep3.pt"
         },
         {
           "id": "qwen-base",

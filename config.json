@@ -1,6 +1,6 @@
 {
   "defaults": {
-    "outdir": "output",
+    "outdir": "out",
     "lang": "zh"
   },
   "tasks": [

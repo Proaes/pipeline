@@ -28,11 +28,11 @@ text_to_audio.py — 文本转语音工具
     python tools/common/text/to_audio.py note.md --trim-tail-ms 60 --tail-pad 0.6
     python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c   # 读稿
     python tools/common/text/to_audio.py 稿子.txt --engine qwen --voice si_c \\
-        --qwen-ckpt output/tts/qwen_ft/si/ckpt_ep3.pt
+        --qwen-ckpt pipeline-specialized/tts/model/qwen_ft/si/ckpt_ep3.pt
         # 读稿走「祀」的 Qwen 微调权重（我们自己的 state dict，叠在底座上；261003 定版 = ep3）
     python tools/common/text/to_audio.py 稿子.txt --engine gptsovits --voice si_ft \\
-        --gpt-weights output/tts/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt \\
-        --sovits-weights output/tts/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth
+        --gpt-weights pipeline-specialized/tts/model/gpt-sovits/GPT_weights_v2ProPlus/si-e15.ckpt \\
+        --sovits-weights pipeline-specialized/tts/model/gpt-sovits/SoVITS_weights_v2ProPlus/si_e8_s328.pth
         # 先让正在跑的服务热切到这套权重，再合成（切一次，不逐句切）
 
 前置条件:
@@ -42,7 +42,7 @@ text_to_audio.py — 文本转语音工具
         （见 --check）；实测约 4 倍实时，1000 字稿子约 13 分钟
     ffmpeg 需要在 PATH 中（后处理、拼接、转 mp3）
 
-运行记录（261004 起，`--record-dir` 默认 `output/tts/logs/`）:
+运行记录（261004 起，`--record-dir` 默认 `pipeline-specialized/tts/run/ledger/`）:
     每次合成自动写两份数据账，供事后统计「各方案良率 / 返工几次 / 失控率 / 成本」：
       · `detail/<run_id>.jsonl`：这一次的明细（run + 逐句 + 每一发的时长与被拒原因）；
       · `runs.jsonl`：全局账，一行一次运行（参数快照 + 汇总指标 + 逐句指针）。
@@ -118,8 +118,11 @@ DEFAULT_QWEN_MAX_NEW = 600
 # 用户要「在实际运用中记录使用的数据，用来后续微调以及优化」（各方案良率、返工几次……）。
 # 每次运行写两份：明细 `<根>/detail/<run_id>.jsonl`（一行 = 这次运行，含逐句与每一发），
 # 以及全局账 `<根>/runs.jsonl`（追加一行 = 一次运行，seg 不带每发明细，方便整表读进来 group by）。
-# `output/` 在 .gitignore 里 ⇒ 稿子内容与音频数据不会进公开仓。
-DEFAULT_RECORD_ROOT = common.PROJECT_ROOT / "output" / "tts" / "logs"
+# 落点是 TTS 那个「家」的 run/ledger/ —— 它在工作区 `pipeline-specialized/tts/` 下、**不在公开仓里**
+# （261004 二次：`pipeline/output/tts/` 已按用户要求整体搬走并删除），所以稿子内容与音频数据不外流。
+TTS_HOME = Path(os.environ.get("PIPELINE_TTS_HOME")
+                or (common.PROJECT_ROOT.parent / "pipeline-specialized" / "tts"))
+DEFAULT_RECORD_ROOT = TTS_HOME / "run" / "ledger"
 LEDGER_NAME = "runs.jsonl"
 QWEN_LANG_ALIASES = {
     "zh": "Chinese", "cn": "Chinese", "zh-cn": "Chinese", "chinese": "Chinese",
@@ -988,7 +991,7 @@ def parse_trigger(raw: str):
 
 
 def record_root(opts: argparse.Namespace) -> Path:
-    """账本落点：`--record-dir` > 环境变量 `PIPELINE_TTS_RECORD_DIR` > 项目 output/tts/logs。"""
+    """账本落点：`--record-dir` > 环境变量 `PIPELINE_TTS_RECORD_DIR` > pipeline-specialized/tts/run/ledger。"""
     raw = str(opts.record_dir or os.environ.get("PIPELINE_TTS_RECORD_DIR") or "").strip()
     return Path(raw) if raw else DEFAULT_RECORD_ROOT
 
@@ -1139,7 +1142,7 @@ class SegCache:
     （用输出文件名，天然唯一），否则统一 `single` —— 这样抽卡每发独立，
     而**重跑同一发**或只 `--redo-lines` 几句时又全部秒过。
     根目录默认取 `PIPELINE_TTS_SEG_CACHE` → `PIPELINE_TTS_TMPDIR/read_cache` → 系统临时目录，
-    所以在本项目里它落在 `output/tts/tmp/read_cache/`（持久，不会被每次运行的临时夹删掉）。
+    所以在本项目里它落在 `pipeline-specialized/tts/run/tmp/read_cache/`（持久，不会被每次运行的临时夹删掉）。
     """
 
     def __init__(self, root: Path | None, key: str):
@@ -1541,7 +1544,7 @@ def main() -> None:
                              "长文本里定位到第 12 句不行时用它，不用整段重跑")
     parser.add_argument("--seg-cache", default=None,
                         help="逐句缓存目录 [默认: 环境变量 PIPELINE_TTS_SEG_CACHE 或 "
-                             "PIPELINE_TTS_TMPDIR/read_cache，本项目里即 output/tts/tmp/read_cache]")
+                             "PIPELINE_TTS_TMPDIR/read_cache，本项目里即 pipeline-specialized/tts/run/tmp/read_cache]")
     parser.add_argument("--no-cache", action="store_true",
                         help="关掉逐句缓存（每次全部重新合成）")
     parser.add_argument("--check", action="store_true", help="仅检查环境")

@@ -94,12 +94,12 @@ def main():
   python fix_m3u8.py                           # 处理 input/ 下所有 m3u8
   python fix_m3u8.py input/xxx.m3u8            # 处理单个文件
   python fix_m3u8.py --convert                 # 修正并转换为 mp4
-  python fix_m3u8.py --convert --outdir output # 指定输出目录
+  python fix_m3u8.py --convert --outdir output_mp4 # 指定输出目录
         """,
     )
     parser.add_argument("input", nargs="?", default="input", help="m3u8 文件或目录 [默认: input]")
     parser.add_argument("--convert", action="store_true", help="修正后自动转换为 mp4")
-    parser.add_argument("--outdir", default="output", help="mp4 输出目录 [默认: output]")
+    parser.add_argument("--outdir", default="output_mp4", help="mp4 输出目录 [默认: output_mp4]")
     args = parser.parse_args()
 
     input_path = Path(args.input)

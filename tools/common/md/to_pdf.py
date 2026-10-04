@@ -58,13 +58,24 @@ def _find_tool(name: str) -> str:
 
 
 def _default_build_dir() -> Path:
-    """构建目录默认放在 pipeline/output/md_build（output/ 为不入库的数据层）。
+    """构建目录默认放在 pipeline/.runtime/md_build（仓库根的运行期目录，不入库）。
 
-    不放在系统临时目录：workspace-write 沙箱下系统 temp 可能不可写。
+    261004 二次：原先写 `pipeline/output/md_build`，而 `output/` 这个「输入/输出文件夹」老设计
+    已按用户要求整个删掉（它的内容按功能搬进了 `pipeline-specialized/tts/`），故改到 `.runtime/`。
+    用 `mkdir` 随机名目录而**不是** `tempfile.mkdtemp` —— 后者建出来是 0o700，DSH 沙箱里
+    受限令牌连往里写都被拒（260929 老坑，`--build-dir` 只是绕法，这次顺手修掉）。
+    也不放在系统临时目录：workspace-write 沙箱下系统 temp 可能不可写。
     """
-    base = SCRIPT_DIR.parent.parent.parent / "output" / "md_build"
+    base = SCRIPT_DIR.parent.parent.parent / ".runtime" / "md_build"
     base.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix="run_", dir=str(base)))
+    for _ in range(100):
+        cand = base / ("run_" + next(tempfile._get_candidate_names()))
+        try:
+            cand.mkdir()
+            return cand
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"建不出构建目录（100 次都撞名）：{base}")
 
 
 def _first_heading(data: dict) -> str:

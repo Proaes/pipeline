@@ -137,11 +137,15 @@ def _resolve_py_tts() -> str:
 
 PY_TTS = _resolve_py_tts()
 GENIE_ROOT = os.environ.get("GENIE_ROOT", r"D:\tools\genie")
+# TTS 这条线的「家」：脚本、权重、素材、运行期都在这儿，**不在本公开仓里**
+# （261004 二次从 pipeline/output/tts/ 按功能搬到工作区 pipeline-specialized/tts/，见 ISSUES/11 §6）。
+# 可用 PIPELINE_TTS_HOME 覆盖；目录结构：model/ data/ script/ doc/ env/ cache/ run/{logs,ledger,tmp}
+TTS_HOME = Path(os.environ.get("PIPELINE_TTS_HOME") or (ROOT.parent / "pipeline-specialized" / "tts"))
 # GPT-SoVITS(api_v2) 服务：--engine gptsovits 走 HTTP 合成，需要它常驻；默认 127.0.0.1:9880
 TTS_HOST = os.environ.get("PIPELINE_TTS_HOST", "127.0.0.1")
 TTS_PORT = int(os.environ.get("PIPELINE_TTS_PORT", "9880"))
 TTS_SERVE_HINT = ("powershell -NoProfile -ExecutionPolicy Bypass -File "
-                  + str(ROOT / "output" / "tts" / "p10_serve_si.ps1"))
+                  + str(TTS_HOME / "script" / "p10_serve_si.ps1"))
 # 热切权重可能要在服务侧重新加载模型，给足时间；超时只报错，不阻塞界面线程池以外的逻辑
 TTS_APPLY_TIMEOUT = float(os.environ.get("PIPELINE_TTS_APPLY_TIMEOUT", "180"))
 
@@ -169,7 +173,7 @@ JSON_TO_DOCX = TOOLS / "common" / "json" / "to_docx.py"
 
 # 界面里「启动服务」按钮跑的就是它；换别的服务脚本用 PIPELINE_TTS_SERVE_SCRIPT 指定
 TTS_SERVE_SCRIPT = Path(os.environ.get("PIPELINE_TTS_SERVE_SCRIPT",
-                                       str(ROOT / "output" / "tts" / "p10_serve_si.ps1")))
+                                       str(TTS_HOME / "script" / "p10_serve_si.ps1")))
 _tts_serve_proc: subprocess.Popen | None = None
 
 
@@ -273,13 +277,13 @@ MAX_LOG = 2000  # 单步日志截断长度
 STEP_TIMEOUT = float(os.environ.get("PIPELINE_STEP_TIMEOUT", "600"))
 TTS_STEP_TIMEOUT = float(os.environ.get("PIPELINE_TTS_STEP_TIMEOUT", "3600"))
 # TTS 子进程的临时目录：不设的话逐句缓存落在系统 %TEMP%，命令行跑同一篇稿子时对不上，
-# 界面这一路也就永远吃不到缓存（每次都得从头合成十几分钟）。缺省指到项目里，与 CLI 一致。
-TTS_TMPDIR = ROOT / "output" / "tts" / "tmp"
+# 界面这一路也就永远吃不到缓存（每次都得从头合成十几分钟）。缺省指到 TTS 家里，与 CLI 一致。
+TTS_TMPDIR = TTS_HOME / "run" / "tmp"
 # numba 的 JIT 缓存目录：不指定时 numba 会往 site-packages 里 librosa 自己的 __pycache__
 # 写缓存文件；那个目录在工作区外、受限环境下写不进去，于是 numba 在 ensure_cache_path 里
-# 死等 —— 实测子进程 100% CPU 转 10 分钟、零产物（260929 老坑）。指到项目里既避开它，
+# 死等 —— 实测子进程 100% CPU 转 10 分钟、零产物（260929 老坑）。指到家里既避开它，
 # 又能复用命令行跑热的那份缓存。
-TTS_NUMBA_DIR = ROOT / "output" / "tts" / "numba_cache"
+TTS_NUMBA_DIR = TTS_HOME / "cache" / "numba_cache"
 
 
 def _run(cmd: list[str], timeout: float = STEP_TIMEOUT,
@@ -687,8 +691,8 @@ def _tts_service_weights() -> dict | None:
     `p10_serve_si.ps1` 写的 t2s/vits 是**相对 `gpt-sovits/GPT_SoVITS/` 的相对路径**，
     所以先补成绝对路径再和注册表比对。只读文件，不启动也不改任何东西。
     """
-    gsv = ROOT / "output" / "tts" / "gpt-sovits" / "GPT_SoVITS"
-    config = ROOT / "output" / "tts" / "tmp" / "tts_infer_si.yaml"
+    gsv = TTS_HOME / "model" / "gpt-sovits" / "GPT_SoVITS"
+    config = TTS_HOME / "run" / "tmp" / "tts_infer_si.yaml"
     try:
         text = config.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -913,7 +917,8 @@ def ocr_start() -> dict:
     exe = shutil.which("ollama")
     if not exe:
         return {"started": False, "message": "未找到 ollama，请先安装 Ollama"}
-    out_log = ROOT / "output"
+    # 运行期日志统一落仓库根的 .runtime/（261004 二次：output/ 已废，别再往那儿写）
+    out_log = ROOT / ".runtime"
     out_log.mkdir(parents=True, exist_ok=True)
     logf = open(out_log / "ollama_serve.log", "ab")
     try:

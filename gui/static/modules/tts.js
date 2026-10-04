@@ -142,7 +142,7 @@ ttsServePoll = setInterval(async () => {
   if (view.stage === "ready" || view.stage === "error") { stopServePoll(); return; }
   if (Date.now() - t0 > STATUS_TIMEOUT_MS) {
     stopServePoll();
-    const hint = view.message ? ("，日志：" + view.message) : "，日志：" + "output/tts/p10_serve_si.log";
+    const hint = view.message ? ("，日志：" + view.message) : "，日志：" + "pipeline-specialized/tts/run/logs/p10_serve_si.log";
     setStatus(`⚠ 超过 ${STATUS_TIMEOUT_MS / 1000} s 仍未就绪，请查启动日志${hint}`, COLOR_ERR);
   }
 }, STATUS_POLL_MS);
