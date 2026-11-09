@@ -30,6 +30,7 @@
 | 音频 → 转写文本 | `common/audio/to_md.py` | 直接 ASR |
 | 文本 → 语音 | `common/text/to_audio.py` | GENIE / GPT-SoVITS ONNX，**CPU 推理、零显存**；音色库 + 预设角色；长文自动切句，句间加静音、句尾淡出 |
 | 视频链接 → 视频/音频 | `common/url/to_mp4.py` | B站/YouTube 下载 |
+| 图片链接 → 批量 webp | `common/url/to_webp.py` | 按编号范围 n 抓图：模板或样本 URL、多线程、断点续传、内容校验 |
 | m3u8 → mp4 | `common/url/fix_m3u8.py` | 分片合并 |
 | 浏览器 → cookies | `common/url/export_cookies.py` | 下载鉴权用 |
 | 批量多文件转换 | `main.py`（读 `config.json`） | 编排器 |
@@ -55,7 +56,7 @@ pipeline/
 │   │   ├── video/  to_md.py    #   语音转文本
 │   │   ├── audio/  to_md.py
 │   │   ├── text/   to_audio.py #   文本 → 语音（GENIE / GPT-SoVITS，含音色库）
-│   │   └── url/    to_mp4.py / fix_m3u8.py / export_cookies.py
+│   │   └── url/    to_mp4.py / fix_m3u8.py / export_cookies.py / to_webp.py
 ├── gui/                        # 本地 Web 转换面板（纯标准库）
 │   ├── server.py               #   http.server 后端：静态页 + /api/convert /api/browse /api/watch
 │   └── static/index.html       #   单页前端：浏览选文件、批量转换、实时日志、watch 监听
@@ -124,6 +125,13 @@ python tools/common/text/to_audio.py note.md --ref-audio 我的录音.wav --ref-
 python tools/common/text/to_audio.py --register 我的音色 --ref-audio 我的录音.wav --ref-text "逐字文本" --prompt-lang zh   # 注册成常用音色
 python tools/common/text/to_audio.py note.md --voice 任命助理 --text-lang zh   # 日语参考音频 → 中文输出（跨语种）
 python tools/common/text/to_audio.py note.md --dry-run        # 只看切句结果
+
+# 按编号范围批量下载 webp 图片（-n = 末编号，含端点；默认 0 起、5 位补零）
+python tools/common/url/to_webp.py "https://example.com/gallery/a/{i}.webp" -n 120
+python tools/common/url/to_webp.py "https://example.com/a/00007.webp" -n 120            # 给一张样本链接，自动认编号
+python tools/common/url/to_webp.py "https://example.com/a/{i}.webp" --start 1 -n 30 -w 16 -o ./download/abc
+python tools/common/url/to_webp.py "https://example.com/a/{i}.webp" -n 120 --referer auto --cookie "k=v"   # 被防盗链挡下时
+python tools/common/url/to_webp.py "https://example.com/a/{i}.webp" -n 120 --dry-run    # 只列 URL，不下载
 
 # 图形化转换面板（浏览器操作：浏览选文件 → 选格式 → 转换 → 看日志）
 python gui/server.py              # 默认端口 8765，自动打开浏览器
@@ -201,6 +209,8 @@ python tools/main.py --list         # 仅列出任务
     - ③ **已知限制（2026-09-29 实测，暂不修）**：笔记里用 `![图](相对路径)` 插图会编译失败 —— `to_tex.py` 原样写 `\includegraphics{相对路径}`，而编译的 cwd 是**临时构建目录**，相对 md 写的 `img/ab.png` 永远找不到（log：`File 'img/ab.png' not found` → `! Unable to load picture or PDF file` → exit 1）。**绕法（已实测可用）**：图片路径写**绝对路径 + 正斜杠**，如 `![图](E:/notes/img/ab.png)` → exit 0 正常出图。修法已明确：`to_pdf.py` 会把源 md 的绝对路径写进 json 的 `meta.source`，`to_tex.py` 可据此把相对路径绝对化（约 5 行），待决定。
 
 11. **文本转语音（`common/text/to_audio.py`，2026-09-28 新增）**：默认引擎是 **GENIE**（GPT-SoVITS 的 ONNX 轻量引擎），**纯 CPU 推理、不占显存**，可与 Ollama / 游戏并存。它在 `Core/Inference.py` 里按 EOS token 边界截断后直接过声码器，**不做任何收尾**，所以「尾音生硬」是模型层面的已知现象；本工具因此默认给每段加 25 ms 淡入淡出 + 0.55 s 收尾静音，仍有杂音尾才考虑 `--trim-tail-ms`——**但 2026-09-28 实测不推荐**：裁 60 ms 会把真实语音一起削掉，听感反而更「截断」；默认值 0 是刻意的。GENIE 原始输出**开头还自带一段近乎无声的「起手」**，故 `--head-pad` 默认只有 0.12 s。音色解析顺序：`--ref-audio` > `voices/<名>/` > `<GENIE 根>/CharacterModels/v2ProPlus/<名>/`（预设角色，零配置可用）。模型有不确定性，同一句话两次生成的**时长可差约 1 秒、顿挫位置也会变**——重要内容不满意时重跑一次往往比调参数有效。**换音色不需要训练**：说话人身份不在权重里，而是运行时由「说话人验证模型」从参考音频算出来（见 `genie_tts/Audio/ReferenceAudio.py` 的 `update_global_emb`），所以录一段 3–10 秒的 wav 放进 `voices/<音色名>/ref.wav` 再配 `ref.txt` 即可；`--ref-audio` 还能免建目录直接试。实测声纹余弦相似度：用自己的参考音频克隆 → 0.800（对参考）vs 0.534（对 feibi），而 feibi 预设角色对自身参考是 0.928 —— **预设角色比随手一段 wav 更贴合**，但音色确实由参考音频主导。`--srt` 会按拼接后的真实时序输出同名时间轴（段间间隔 = `--gap`，末尾含 `--tail-pad`）。**参考音频语种与目标文本语种相互独立**：`load_character` 的 `language` 决定目标文本走哪套 G2P，`set_reference_audio` 的 `language`（本工具里 = `--prompt-lang` 或音色 `meta.ref_lang`）决定参考音频走哪套，所以「日语音色 + 中文文本」是原生支持的跨语种克隆。实测声纹相似度：同语种 0.800 vs 跨语种 0.806（**几乎无差**），但跨语种的「对自身参考 − 对 feibi 参考」差值从 +0.266 缩到 +0.099，**音色可能更泛化一些**；有无口音须自己听。注册音色用 `--register <名> --ref-audio x.wav --ref-text "逐字文本" --prompt-lang <参考语种>`（一条命令写出 `voices/<名>/{ref.wav,ref.txt,meta.json}`）。**参考音频建议 3–10 秒、一整句**；几十秒的素材先剪出一段连续无长停顿的再注册。
+
+12. **webp 批量下载（`common/url/to_webp.py`，261110 新增）**：`-n` 是**末编号且含端点**，默认从 `--start 0` 起、模板模式的 `{i}` 补零到 5 位（`--digits` 可改）；给一张真实样本链接时自动照抄样本末段数字串的位数。默认**直连**（不带 Referer、`trust_env=False`，绕开本机代理环境变量的干扰），被 403/防盗链挡下再加 `--referer auto` / `--cookie "k=v"` / `--cookies cookies.txt`。默认校验返回内容的 webp magic，**200 的验证页/报错页直接判失败**，确认站点给的就是图片后可用 `--skip-magic-check` 关掉。已存在且非空的文件默认跳过（断点续传），`--force` 重下；产物默认落在 `download/<站点>/`（`.gitignore` 已排除）。
 
 ---
 
