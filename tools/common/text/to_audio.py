@@ -101,7 +101,7 @@ GENIE_CHAR_LANG = {"feibi": "zh", "mika": "jp", "thirtyseven": "en"}
 # 默认 sdpa：实测 flash_attention_2 在本模型（talker → code_predictor 两层嵌套
 # 自回归）上更慢（RTF 4.08 对 3.13），所以不随 flash-attn 是否安装而变。
 DEFAULT_QWEN_ATTN = "sdpa"
-# Qwen 的采样默认值（261003 七次实测定版，见 ISSUES/09 §14 / §19）：
+# Qwen 的采样默认值（261003 七次实测定版）：
 #   ① talker 温度收到 0.7 / top_p 0.9 —— 官方默认 0.9/1.0 会「颤」（用户听感原话）；
 #   ② **sub-talker 温度 0.5** —— 12 Hz 的 16 个码本里只有 1 个由 talker 出、另 **15 个**由
 #      `code_predictor` 出，而它的采样参数一直是包内默认 0.9；成对实测（同种子 4 句 2 发）

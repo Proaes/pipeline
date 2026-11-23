@@ -138,7 +138,7 @@ def _resolve_py_tts() -> str:
 PY_TTS = _resolve_py_tts()
 GENIE_ROOT = os.environ.get("GENIE_ROOT", r"D:\tools\genie")
 # TTS 这条线的「家」：脚本、权重、素材、运行期都在这儿，**不在本公开仓里**
-# （261004 二次从 pipeline/output/tts/ 按功能搬到工作区 pipeline-specialized/tts/，见 ISSUES/11 §6）。
+# （261004 二次从 pipeline/output/tts/ 按功能搬到工作区 pipeline-specialized/tts/）。
 # 可用 PIPELINE_TTS_HOME 覆盖；目录结构：model/ data/ script/ doc/ env/ cache/ run/{logs,ledger,tmp}
 TTS_HOME = Path(os.environ.get("PIPELINE_TTS_HOME") or (ROOT.parent / "pipeline-specialized" / "tts"))
 # GPT-SoVITS(api_v2) 服务：--engine gptsovits 走 HTTP 合成，需要它常驻；默认 127.0.0.1:9880
